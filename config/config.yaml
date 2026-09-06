@@ -30,6 +30,100 @@ reproducibility:
   grouping_key: subject_id
 
 
+paths:
+  # Relative to the repo root. Everything here is under data/, which is
+  # gitignored (Part 2.4): no data file is ever committed.
+  demo_dir: data/mimic-iv-clinical-database-demo-2.2
+  duckdb: data/crrt.duckdb
+  parquet_dir: data/parquet
+
+
+itemid_inventory:
+  # Part 2.3 — "Do not trust remembered itemids." This block drives the
+  # evidence sweep that produces docs/itemids.md. It is deliberately
+  # OVER-INCLUSIVE: the sweep exists to surface candidates for manual review,
+  # not to decide anything. Inclusion is a human judgment recorded by hand in
+  # that file, then promoted to docs/data_dictionary.md.
+
+  # Every item in this d_items category is a candidate regardless of label.
+  seed_category: Dialysis
+
+  # Substring patterns matched case-insensitively against BOTH d_items.label
+  # and d_items.abbreviation. Cast wide and accept false positives: a junk
+  # candidate costs one line of review, a missed itemid costs a variable.
+  # The pattern that matched is reported per row so noise is easy to dismiss.
+  label_patterns:
+    # Modality and circuit
+    - dialy
+    - crrt
+    - cvvh
+    - scuf
+    - hemofilt
+    - ultrafilt
+    - filter
+    - effluent
+    - dialysate
+    - replacement
+    # Circuit pressures and flow (Part 7, the machine feature group)
+    - access pressure
+    - return pressure
+    - trans membrane
+    - transmembrane
+    - tmp
+    - pressure drop
+    - blood flow
+    - prefilter
+    - pre-filter
+    - postfilter
+    - post filter
+    - pbp
+    # Anticoagulation (Part 7)
+    - citrate
+    - acd-a
+    - heparin
+    - anticoag
+    - argatroban
+    - bivalirudin
+    # Vascular access (Part 7 - a known driver of filter life)
+    - lumen
+    # Chemistry tied to the outcomes (Parts 5.2, 3)
+    - calcium
+    - phosph
+    - potassium
+    - magnesium
+    - bicarb
+    - urea
+    - creatinine
+    - renal
+    - kidney
+
+  # Reported per candidate as evidence. Part 2.3 says eyeball the value
+  # distribution before trusting an itemid.
+  percentiles: [5, 50, 95]
+
+  # Cap on distinct unit strings printed per row, so one dirty item cannot
+  # blow up the table. Overflow is reported as a count.
+  max_units_listed: 6
+
+  # Cap on distinct Text values printed per item in the appendix.
+  max_text_values_listed: 12
+
+  # Recall cross-check only, NOT an inclusion list. These are the itemids in
+  # MIT-LCP/mimic-code mimic-iv/concepts/treatment/crrt.sql (fetched
+  # 2026-09-06). Part 2.3 says start from that concept and extend it, so the
+  # sweep must at minimum rediscover all of them.
+  mimic_code_crrt_itemids:
+    [224144, 224145, 224146, 224149, 224150, 224151, 224152, 224153, 224154,
+     224191, 225183, 225956, 225958, 225976, 225977, 226457, 227290, 228004,
+     228005, 228006]
+
+  # procedureevents items that document a CRRT modality actually being run,
+  # used only to report a tight stay count alongside the broad one. Reporting
+  # aid, NOT an inclusion decision -- inclusion is settled by hand in
+  # docs/itemids.md.
+  crrt_procedure_itemids: [225802, 225803, 225809, 225955]
+
+
 cohort:                                     # Plan Part 4
   min_age_years: 18                         # 4.1 — adults at ICU admission
   min_session_duration_hours: 4             # 4.1 — UNLOCKED, plan says "e.g. >=4h"

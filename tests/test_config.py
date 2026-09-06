@@ -35,6 +35,16 @@ REQUIRED_KEYS = [
     "features.window_hours",
     "evaluation.alert_budget_alerts",
     "evaluation.alert_budget_hours",
+    "paths.demo_dir",
+    "paths.duckdb",
+    "paths.parquet_dir",
+    "itemid_inventory.seed_category",
+    "itemid_inventory.label_patterns",
+    "itemid_inventory.percentiles",
+    "itemid_inventory.max_units_listed",
+    "itemid_inventory.max_text_values_listed",
+    "itemid_inventory.mimic_code_crrt_itemids",
+    "itemid_inventory.crrt_procedure_itemids",
 ]
 
 

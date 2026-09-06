@@ -9,17 +9,24 @@
 #
 # Usage: ./run_all.sh
 #
-# STUB — no stage is implemented yet.
+# Implemented so far: database build and the itemid evidence sweep.
 
 set -euo pipefail
 
 CONFIG="config/config.yaml"
 
-echo "run_all.sh is a stub. Config: ${CONFIG}"
+echo "config: ${CONFIG}"
 
-# Stages, in the order Parts 4-11 build them. Uncomment as each lands.
+# 0. Load the CSVs into DuckDB; convert chartevents to Parquet (Part 2.1).
+uv run python -m crrt.build_db
+
+# 1a. Itemid evidence sweep -> docs/itemids.md (Part 2.3). Inclusion is then
+#     decided BY HAND in that file; this only gathers the evidence.
+uv run python -m crrt.itemid_inventory
+
+# Stages below are not implemented yet. Uncomment as each lands.
 #
-# 1. Extraction        (Part 2.3, 4)   itemid derivation + validation, cohort
+# 1b. Extraction       (Part 2.3, 4)   cohort from the reviewed itemid list
 # 2. Sessionization    (Part 4.4)      stitch hourly rows into sessions/circuits
 # 3. STROBE counts     (Part 4.6)      exact N at every exclusion step
 # 4. Outcome labels    (Part 5)        circuit failure + hypophosphatemia
