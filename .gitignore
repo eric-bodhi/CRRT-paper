@@ -1,0 +1,49 @@
+# ── Data: NEVER COMMITTED ──────────────────────────────────────────────────
+# PhysioNet DUA (plan Part 1.4): each user credentials and downloads
+# individually. Code is shared via this repo; data never is.
+data/
+*.csv
+*.csv.gz
+*.parquet
+*.duckdb
+*.duckdb.wal
+*.db
+*.sqlite
+*.sqlite3
+*.dta
+*.sas7bdat
+*.xpt
+
+# ── Notebook output ────────────────────────────────────────────────────────
+# Outputs can embed row-level PHI-adjacent values; strip before committing.
+.ipynb_checkpoints/
+*-checkpoint.ipynb
+*.nbconvert.ipynb
+notebooks/output/
+outputs/
+
+# ── Environments ───────────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+.env
+.envrc
+.conda/
+__pycache__/
+*.py[cod]
+.python-version
+
+# ── Tooling caches ─────────────────────────────────────────────────────────
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+
+# ── Editors / OS ───────────────────────────────────────────────────────────
+.DS_Store
+.idea/
+.vscode/
