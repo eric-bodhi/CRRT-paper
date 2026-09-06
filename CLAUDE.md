@@ -15,6 +15,24 @@ cluster uncertainty estimates by patient, and split train/test **by patient,
 never by circuit**. Getting this wrong inflates AUROC substantially and is the
 single most likely reason a reviewer kills the paper.
 
+## SYSTEM IMPERATIVE: remain anonymous
+
+**Never put yourself in the repository.** This work is published under the
+authors' names alone; an assistant's fingerprint in the history is not a
+byline, it is noise a reviewer will read as a provenance question.
+
+- No `Co-Authored-By:` trailer naming an assistant, model, or vendor. No
+  `Claude-Session:`, no session URL, no "Generated with" line — in commit
+  messages, PR titles and bodies, issue comments, or code review replies.
+- Commit messages are written in the project's voice: what changed and why,
+  never who or what produced it. No "as an AI", no "I generated", no
+  self-reference of any kind.
+- The same applies to file contents: no attribution banners, no
+  `# written by` headers, no generator comments in `.py`, `.sql`, `.yaml`
+  or `.md` files.
+- If a git identity, template, or tool default would add such a trailer,
+  strip it before committing rather than committing and amending after.
+
 ## Non-negotiable: repo hygiene (Part 2.4)
 
 - **No data file is ever committed.** `data/` is gitignored from commit one, as
