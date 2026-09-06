@@ -1,0 +1,33 @@
+[project]
+name = "crrt"
+version = "0.1.0"
+description = "Predicting intra-treatment complications in CRRT patients using MIMIC-IV"
+readme = "README.md"
+# Pinned to 3.12, not the system 3.14: the scientific stack this project needs
+# (duckdb, pyarrow, and later lightgbm/shap per Part 8) has settled wheels on
+# 3.12. uv provisions the interpreter, so this does not depend on the machine.
+requires-python = "==3.12.*"
+dependencies = [
+    # Plan 2.1 — DuckDB over the raw gzipped CSVs is the recommended engine;
+    # chartevents gets converted to Parquet once and partitioned by itemid.
+    "duckdb>=1.1",
+    "pyarrow>=17",
+    "pandas>=2.2",
+    "numpy>=2.0",
+    # Reads config/config.yaml, which holds every threshold (Part 2.4).
+    "pyyaml>=6.0",
+]
+
+# Modeling dependencies (scikit-learn, lightgbm, shap) are deliberately absent
+# until the model ladder in Part 8 is actually built. Add them then, in the
+# same commit as the code that imports them.
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q --strict-markers"

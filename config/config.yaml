@@ -1,0 +1,134 @@
+# ============================================================================
+# CRRT intra-treatment complications — single source of truth for every
+# threshold, window and cut-point in the analysis.
+#
+# Plan Part 2.4, non-negotiable: "config.yaml holding every threshold and
+# window length — no magic numbers in code." Nothing numeric that shapes the
+# cohort, the label, a feature window, or an evaluation cut-point may be
+# written anywhere else in this repo. If you find yourself typing a number
+# into a .py or .sql file, it belongs here instead.
+#
+# Every value cites the Part of docs/crrt_project_outline.md it comes from.
+#
+# Values marked "UNLOCKED" are ones the plan states as a range or an "e.g."
+# rather than a decision. They are provisional. Locking each one is a
+# paper-level decision that must be written into docs/decisions.md with its
+# date (Part 14) before pre-registration (Part 12) — a reviewer asking "why
+# 2 hours and not 4" gets answered from that log, not from memory.
+#
+# Values that are `null` are ones the plan mandates a choice for but does not
+# supply. They must be filled before the code that reads them can run.
+# ============================================================================
+
+reproducibility:
+  # Plan 2.4 requires fixed seeds. The value itself is arbitrary; what matters
+  # is that it never changes and that every stochastic step reads it.
+  random_seed: 42
+
+  # Plan 4.3 / 6.4: split and cluster by PATIENT, never by circuit or stay.
+  # Named here so no split function can quietly key on something else.
+  grouping_key: subject_id
+
+
+cohort:                                     # Plan Part 4
+  min_age_years: 18                         # 4.1 — adults at ICU admission
+  min_session_duration_hours: 4             # 4.1 — UNLOCKED, plan says "e.g. >=4h"
+  # 4.5 — below this event count you are in a case-series regime, not a
+  # modeling regime. Say so honestly rather than fitting XGBoost to it.
+  min_events_for_modeling: 100
+
+
+sessionization:                             # Plan Part 4.4
+  # Gap with no machine parameters that starts a new CRRT session.
+  gap_hours: 2
+  # 4.4 explicitly requires sensitivity analyses at these gaps.
+  gap_hours_sensitivity: [1, 4]
+
+
+prediction:                                 # Plan Part 6
+  # 6.1 — at every hour t during an active circuit, using only data available
+  # at or before t, predict whether the event occurs in (t, t+H].
+  horizon_hours: 6
+  horizon_hours_sensitivity: [3, 12]
+
+  # 6.2 — exclude the final minutes before the event from the feature window,
+  # or you learn "the alarm that fired two minutes before the nurse changed
+  # the filter": prediction of the present, not the future. State this
+  # interval prominently in the manuscript; reviewers look for it.
+  # UNLOCKED: the plan specifies 30–60 minutes and does not pick one.
+  blanking_minutes: 30
+  blanking_minutes_sensitivity: [60]
+
+  # 6.3 — minimum circuit runtime before a row is scored, so trend features
+  # actually exist.
+  warmup_hours: 2
+
+
+outcomes:
+  circuit_failure:                          # Plan Part 5.1 — primary outcome
+    # Scheduled elective swap interval. Circuit lifespan well short of this is
+    # corroborating signal for premature clotting failure (5.1 step 3).
+    scheduled_change_interval_hours: 72
+    # 5.1 step 3 — reported median filter lifespan by mode, used as a sanity
+    # benchmark for the extracted distribution, not as a label rule.
+    expected_median_lifespan_hours: [17, 21]
+    # 5.1 step 4 — mentor manually adjudicates a random sample of terminations
+    # against the algorithm; report Cohen's kappa.
+    adjudication_sample_size: 150
+    # Part 13 kill checkpoint (end of week 9): below this kappa, circuit
+    # failure drops to secondary and hypophosphatemia is promoted.
+    adjudication_min_kappa: 0.6
+    # 5.1 step 5 — pre-specified, so it cannot be chosen after seeing results.
+    unclear_handling_primary: exclude
+    unclear_handling_sensitivity: non_event
+
+  hypophosphatemia:                         # Plan Part 5.2 — secondary outcome
+    # Incident serum phosphate during CRRT, in a patient not already below
+    # threshold at prediction time.
+    moderate_mg_dl: 2.0
+    severe_mg_dl: 1.0
+
+  citrate_accumulation:                     # Plan Part 3 table
+    total_to_ionized_calcium_ratio: 2.5
+
+
+features:                                   # Plan Part 7
+  # Windows over which last value / mean / min / max / slope / variance are
+  # computed for each machine and clinical signal.
+  window_hours: [1, 3, 6]
+
+  # Plan 7 requires physiologic plausibility bounds, unit harmonization and
+  # duplicate resolution to live here rather than scattered through notebooks.
+  # Deliberately empty: the plan does not supply bound values, and Part 2.3
+  # says derive and manually eyeball every itemid (label, unit, row count,
+  # value distribution) before trusting any range. Populate per variable as
+  # itemids are validated, and mirror each entry in docs/data_dictionary.md.
+  plausibility_bounds: {}
+
+
+validation:                                 # Plan Parts 8.2, 9
+  # 9.1 grouped k-fold + bootstrap optimism correction; 8.2 nested CV with an
+  # outer loop for performance and an inner loop for hyperparameters, grouped
+  # by patient at both levels. The plan mandates the procedures but names no
+  # numbers — fill these in and log the choice.
+  outer_folds: null
+  inner_folds: null
+  bootstrap_iterations: null
+  # 9.2 — train on earlier anchor_year_group cohorts, test on later ones.
+  temporal_split_anchor_year_group: null
+
+
+evaluation:                                 # Plan Part 10
+  # Clinical operating characteristics are reported at a fixed alert budget:
+  # one alert per circuit per 12 hours. Nurses do not care about AUROC; they
+  # care how many false alarms per shift.
+  alert_budget_alerts: 1
+  alert_budget_hours: 12
+
+  # Plan 6.5 negative control: refit the whole pipeline on a shuffled label.
+  # If AUROC materially exceeds 0.5 you have leakage. Run every time the
+  # pipeline changes.
+  shuffled_label_control:
+    expected_auroc: 0.5
+    # UNLOCKED: the plan says "materially exceeds" and gives no number.
+    auroc_tolerance: null
