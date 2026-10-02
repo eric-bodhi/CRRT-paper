@@ -16,6 +16,8 @@ Already saturated: mortality after CRRT initiation, prediction of *who will need
 
 Genuinely open: **intra-treatment complications** — the things that go wrong *during* CRRT, hour to hour. These are under-modeled because they require machine-level data that most databases lack and MIMIC-IV actually has (hourly circuit pressures, blood flow rate, effluent/dialysate/replacement rates, filter change events, anticoagulation).
 
+**Update, 2026-10-02: the clotting part of this lane is now partly occupied on MIMIC.** Yang et al. 2024 (*Intensive Crit Care Nurs* 84:103703, PMID 38704337) built a premature-clotting model on MIMIC-III CareVue plus MIMIC-IV and validated it on eICU. It is a static logistic model with one row per patient, AUROC 0.877. What is still open is the dynamic version: hour by hour, per circuit. So the novelty has to come from the task and the outcome definition, exactly as the first paragraph says, not from beating anyone's AUROC. Part 3.1 sets out the contributions.
+
 ---
 
 ## Part 1 — Access and compliance (start today, runs in parallel)
@@ -28,7 +30,9 @@ Genuinely open: **intra-treatment complications** — the things that go wrong *
 
 **1.4 Two constraints people miss.**
 - Each user must obtain individual access rights. Sharing data within teams or classes is not permitted. You each credential separately and download separately. **Do not put the data in a shared Drive/Dropbox.** Share *code* through GitHub, never data.
-- Current policy requires adherence to a zero data retention policy for LLM use. Local models are unrestricted; API services have limitations. Read PhysioNet's responsible-LLM-use post before pasting any row-level data into any chatbot.
+- **LLM tools.** PhysioNet's "Use of MIMIC Data with Large Language Models and Online Services" (24 Sept 2025) says the DUA prohibits sending the data through APIs or online platforms, and requires any hosted service to guarantee zero data retention, no training use and no human review. Local models are unrestricted. **Team position (2026-10-02, `docs/decisions.md`): aggregate results are exempt; row-level data is not.**
+  - *Exempt:* counts, rates, percentiles and other summary statistics. They may be used with hosted LLM tools, as long as every cell under 10 is suppressed.
+  - *Not exempt:* individual rows, identifiers, timestamps and free-text values. These go only to a local model or to a service whose zero-retention terms have been verified.
 
 **1.5 IRB.** BIDMC and MIT already approved the source database with a consent waiver, but your institution still needs to say something. Ask your mentor to route a non-human-subjects-research determination request — usually a one-page form, usually granted. Get the letter on file *before* you submit anywhere.
 
@@ -65,7 +69,7 @@ Score each candidate on: (a) already published on MIMIC? (b) label extractable a
 
 | Candidate endpoint | Occupied? | Label quality | Actionable? | Verdict |
 |---|---|---|---|---|
-| Circuit/filter failure from clotting in next 6–12h | Studied in small non-MIMIC cohorts | Medium-hard | Yes | **Best niche** |
+| Circuit/filter failure from clotting in next 6–12h | Hour-ahead work only in small single-centre cohorts; a static, per-patient MIMIC model exists (Yang 2024) | Medium-hard | Yes | **Best niche**, dynamic version only |
 | Incident severe hypophosphatemia during CRRT | MIMIC work is prognostic, not predictive | Easy, lab-based | Yes | **Best safety net** |
 | Citrate accumulation (total:ionized Ca ratio >2.5) | Barely touched | Medium | Yes | Strong, if citrate volume allows |
 | Hemodynamic decompensation within 6h of CRRT start/UF escalation | Partly touched | Medium | Yes | Good secondary |
@@ -73,11 +77,41 @@ Score each candidate on: (a) already published on MIMIC? (b) label extractable a
 | Delivered-vs-prescribed dose gap from downtime | Untouched | Medium | Yes | Novel but descriptive |
 | Mortality / weaning / initiation | **Saturated** | Easy | — | Avoid |
 
-**3.1 Why circuit failure is the strongest angle.** Existing work is small and single-center: 636 ESKD patients in one Chinese center, 404 sessions from 135 patients in Sichuan, plus a pediatric cohort. Nobody has done it at scale on a public multi-year ICU database with hourly pressure telemetry. Meanwhile the physiology literature says the signal is there: longitudinal trends in circuit pressure parameters — blood-flow-adjusted filter pressure drop and ultrafiltration-adjusted transmembrane pressure — predicted filter clotting one hour ahead with 77.1% sensitivity and 62.9% specificity, irrespective of CRRT mode. Your contribution: does a multivariate longitudinal model on routinely collected data beat those two-parameter rules, at scale, with proper calibration?
+**3.1 Why circuit failure is still the strongest angle, and where the novelty has to come from.** (Revised 2026-10-02. Evidence is in `docs/feasibility.md` §2 and §5.)
+
+The prior work:
+- **Single-centre studies.** Clotting prediction otherwise exists only in small single-centre cohorts: 636 ESKD patients in one Chinese centre, 404 sessions from 135 patients in Sichuan, a 23-patient paediatric cohort, and the pressure-trend study below.
+- **On MIMIC: Yang 2024 (Part 0).** It is static and per patient. Its AUROC is for a different unit and a different task, so "beats Yang" is not a claim this paper can make.
+- **The pressure-trend rule: Hu et al. 2026** (*Sci Rep* 16:17411, PMID 41981025). Longitudinal trends in blood-flow-adjusted filter pressure drop and ultrafiltration-adjusted TMP predicted clotting one hour ahead.
+  - Rule: positive if ΔBFR > 0.075 mmHg/(ml/min) or ΔTFR > 0.115 mmHg/(ml/h).
+  - Result: 77.1% sensitivity and 62.9% specificity, irrespective of CRRT mode.
+  - Data: 96 circuits from 51 patients on a Baxter Aquarius. The authors call for validation.
+
+The paper rests on three contributions, plus an optional fourth.
+
+1. **A different task.** The question is not "is this patient at risk" but "will this filter clot in the next H hours", re-asked every hour (Part 6.1).
+   - This is the version a nurse can act on: adjust anticoagulation, or change the filter on schedule rather than lose the blood in the circuit.
+   - The evaluation follows from the task (Part 10): false alerts per shift at a fixed alert budget, lead time, and per-circuit (event-based) detection. A once-per-patient model can report none of these.
+2. **The outcome definition, released as a reusable concept.**
+   - MIMIC-IV has no usable reason-for-change field (350 rows). The obvious gap-based way of cutting circuits produces about 43% spurious terminations.
+   - We define circuits by filter identity and validate the definition against terminal pressure signatures and clinician adjudication (Part 5.1).
+   - The definition is contributed upstream to MIT-LCP/mimic-code as a `crrt_circuits` concept. That makes it citable and durable even if someone publishes a model first.
+3. **A direct test of whether ML adds anything.** The model must beat two simple comparators (Part 8.1). If it does not, that is reported as the finding.
+   - **The Hu 2026 pressure rule.** At about 8,400 circuits this is also the first large-scale external test of it. Report it both as published and recalibrated to hourly Prismaflex charting.
+   - **The nurse's own `Clots Increasing` charting.**
+4. *(Optional)* **The cost of common design errors.** Measure how much AUROC inflates when train/test is split by circuit instead of patient, and when pressure is used both to define the label and as a feature. This explains why earlier numbers look high without accusing any specific paper.
+
+Two things to do before the protocol is locked (Part 13, weeks 3–4):
+- **Get Yang 2024's full text** through the USC library and confirm how they defined clotting and circuits. The framing above depends on it.
+- **Pre-register these contributions on OSF (Part 12) before any model is fit**, so the claim is timestamped. The registration must disclose that the feasibility counts in `docs/feasibility.md` (event rates, label distributions) were seen first.
 
 **3.2 Why you also want the hypophosphatemia arm.** Circuit failure carries real label risk (see 5.1). Hypophosphatemia is insurance: unambiguous label, high event rate — reported as high as 65% with non-phosphate-containing CRRT solutions, and 27–78% depending on dialysis intensity and duration — and the existing MIMIC-IV phosphate work is about the *impact* of phosphate levels on extubation failure and mortality, i.e. association, not forward prediction. Nobody has built "will this patient drop below 2.0 mg/dL in the next 24 hours."
 
 **3.3 Recommended design.** Primary: circuit failure. Secondary: incident severe hypophosphatemia. Frame the paper as **"a multi-outcome early-warning framework for intra-treatment CRRT complications."** If circuit labels turn out to be garbage, you pivot the framing to electrolytes without losing the cohort work.
+
+**Hypophosphatemia is the cleanest "first".** The 2026-10-02 search found no forward-prediction model for it in any dataset.
+- Keep it in the protocol: it shares the whole pipeline.
+- The outcomes are fixed now. Only the packaging waits until drafting: whether hypophosphatemia is this paper's secondary outcome or a short paper of its own.
 
 **Decide this in week 1 and write it down.** Do not let it drift.
 
@@ -158,7 +192,9 @@ Cleaning rules must be pre-specified: physiologic plausibility bounds per variab
 ## Part 8 — Modeling
 
 **8.1 Ladder, in order. Do not skip steps.**
-1. **Clinical baseline** — the published two-parameter pressure rule as a fixed decision rule. Your "does ML beat the simple thing" comparator, and what separates a real paper from a leaderboard exercise.
+1. **Clinical baselines.** Two fixed decision rules. These are your "does ML beat the simple thing" comparators, and what separates a real paper from a leaderboard exercise.
+   - The published two-parameter pressure rule (Hu 2026, Part 3.1), reported both as published and recalibrated.
+   - The nurse-observation rule: `Clots Increasing` charted.
 2. **Penalized logistic regression** on last-value features. Interpretable, cheap, often within a few points of the best model.
 3. **Gradient boosting** (LightGBM/XGBoost) on the full engineered feature set. Almost certainly your headline model.
 4. **Temporal model** (GRU / temporal CNN / TCN) on raw hourly sequences — only if you have the event volume. With a few hundred events this will overfit; say so rather than force it.
@@ -270,9 +306,10 @@ Two people, one codebase. Split by **layer**, not by task, so both of you unders
 
 1. Pre-registered protocol (OSF)
 2. Public GitHub repo: extraction SQL, feature pipeline, models, `run_all.sh`, environment lockfile, data dictionary, decision log. No data.
-3. Completed TRIPOD+AI checklist
-4. Manuscript with STROBE flow, Table 1, discrimination + calibration figures, decision curve, subgroup table, SHAP figures, ablation table
-5. Target venues, roughly in order of ambition: *Critical Care* / *Intensive Care Medicine Experimental* / *Journal of Critical Care* / *BMC Nephrology* / *Kidney360*; or *AMIA* or *CHIL* for an informatics framing
+3. `crrt_circuits` concept contributed upstream to MIT-LCP/mimic-code (Part 3.1, contribution 2)
+4. Completed TRIPOD+AI checklist
+5. Manuscript with STROBE flow, Table 1, discrimination + calibration figures, decision curve, subgroup table, SHAP figures, ablation table
+6. Target venues, roughly in order of ambition: *Critical Care* / *Intensive Care Medicine Experimental* / *Journal of Critical Care* / *BMC Nephrology* / *Kidney360*; or *AMIA* or *CHIL* for an informatics framing
 
 ---
 
