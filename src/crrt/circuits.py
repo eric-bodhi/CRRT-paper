@@ -19,6 +19,7 @@ from typing import Any
 import duckdb
 
 from crrt import config
+from crrt.report import count
 
 SQL_PATH = config.REPO_ROOT / "sql" / "crrt_circuits.sql"
 
@@ -54,7 +55,7 @@ def summarize(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
     min_hours = cfg["cohort"]["min_session_duration_hours"]
 
     def n(v: int) -> str:
-        return f"<{small}" if 0 < v < small else f"{v:,}"
+        return count(v, small)
 
     total, stays, patients = con.execute(
         "SELECT count(*), count(DISTINCT stay_id), count(DISTINCT subject_id) "

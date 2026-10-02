@@ -10,6 +10,13 @@ cell for a human to fill in by hand. Nothing is dropped for looking like noise:
 the pattern that matched is reported per row so a false positive costs one line
 of review, whereas a silently discarded itemid costs a variable.
 
+The output is committed, so every count in it goes through small-cell
+suppression (Part 1.4, `reporting.small_cell_threshold`). Percentiles are
+withheld when too few values or stays stand behind them, because p5/p95 of a
+handful of rows is close to a row-level value. Text values seen fewer times
+than the threshold are dropped outright: in a Text item a rare value may be
+free text.
+
 Usage: uv run python -m crrt.itemid_inventory
 """
 
@@ -18,6 +25,7 @@ from typing import Any
 import duckdb
 
 from crrt import config
+from crrt.report import count
 
 # The numeric channel(s) and unit column for each event table. chartevents is
 # the only table with a `valuenum`; the others name their numeric column
@@ -57,8 +65,12 @@ def candidates(con: duckdb.DuckDBPyConnection, inv: dict[str, Any]):
     return rows
 
 
-def measure(con, linksto: str, itemids: list[int], inv: dict[str, Any]):
-    """Row/stay counts, observed units and percentiles, per itemid per channel."""
+def measure(con, linksto: str, itemids: list[int], inv: dict[str, Any], small: int):
+    """Row/stay counts, observed units and percentiles, per itemid per channel.
+
+    Percentiles come back as None unless at least `small` numeric values from
+    at least `small` stays stand behind them.
+    """
     if not itemids:
         return {}
     ids = ",".join(str(i) for i in itemids)
@@ -85,7 +97,7 @@ def measure(con, linksto: str, itemids: list[int], inv: dict[str, Any]):
 
         by_item: dict[int, list[str]] = {}
         for u in units.itertuples(index=False):
-            by_item.setdefault(u.itemid, []).append(f"{u.unit} ({u.n})")
+            by_item.setdefault(u.itemid, []).append(f"{u.unit} ({count(u.n, small)})")
 
         for s in stats.itertuples(index=False):
             seen = by_item.get(s.itemid, [])
@@ -98,7 +110,8 @@ def measure(con, linksto: str, itemids: list[int], inv: dict[str, Any]):
                 "n_stays": s.n_stays,
                 "n_num": s.n_num,
                 "units": shown or "—",
-                "pcts": [getattr(s, f"p{i}") for i, _ in enumerate(qs)],
+                "pcts": [getattr(s, f"p{i}") if s.n_num >= small and s.n_stays >= small
+                         else None for i, _ in enumerate(qs)],
             }
     return out
 
@@ -150,7 +163,7 @@ def crrt_stay_counts(con, inv: dict[str, Any], cands) -> list[tuple[str, str, in
 
     total = con.execute("SELECT count(DISTINCT stay_id) FROM icustays").fetchone()[0]
     return [
-        ("All ICU stays in the demo", "denominator", total),
+        ("All ICU stays", "denominator", total),
         ("Broad — any Dialysis-category item, chartevents or procedureevents",
          "over-counts: includes peritoneal and intermittent hemodialysis", union),
         ("Dialysis-category chartevents only", f"{len(seed_ce)} itemids",
@@ -165,7 +178,7 @@ def crrt_stay_counts(con, inv: dict[str, Any], cands) -> list[tuple[str, str, in
     ]
 
 
-def text_values(con, cands, inv: dict[str, Any], limit: int):
+def text_values(con, cands, inv: dict[str, Any], limit: int, small: int):
     """Distinct chartevents values for the categorical items in the seed category.
 
     Text items have no percentiles, so the numeric columns of the main table
@@ -173,6 +186,9 @@ def text_values(con, cands, inv: dict[str, Any], limit: int):
     -- and for Part 5.1 it is the whole ballgame: "Reason for CRRT Filter
     Change" and "System Integrity" are where the circuit-failure label comes
     from, and you cannot judge that label without seeing what they actually say.
+
+    Only values charted at least `small` times are returned. The rest may be
+    free text, so they are not printed, only flagged as present.
     """
     ids = [c["itemid"] for c in cands
            if c["category"] == inv["seed_category"]
@@ -185,10 +201,15 @@ def text_values(con, cands, inv: dict[str, Any], limit: int):
         f"WHERE itemid IN ({','.join(map(str, ids))}) AND value IS NOT NULL "
         f"GROUP BY 1, 2 ORDER BY 1, 3 DESC"
     ).fetchdf()
-    out: dict[int, list[str]] = {}
+    shown: dict[int, list[str]] = {}
+    rare: set[int] = set()
     for r in rows.itertuples(index=False):
-        out.setdefault(r.itemid, []).append(f"`{r.value}` ({r.n})")
-    return {k: (v[:limit], len(v)) for k, v in out.items()}
+        shown.setdefault(r.itemid, [])
+        if r.n >= small:
+            shown[r.itemid].append(f"`{r.value}` ({r.n:,})")
+        else:
+            rare.add(r.itemid)
+    return {k: (v[:limit], len(v), k in rare) for k, v in shown.items()}
 
 
 def render(cfg: dict[str, Any], con) -> str:
@@ -196,6 +217,7 @@ def render(cfg: dict[str, Any], con) -> str:
     cands = candidates(con, inv)
     concept = set(inv["mimic_code_crrt_itemids"])
     pcts = inv["percentiles"]
+    small = cfg["reporting"]["small_cell_threshold"]
 
     by_table: dict[str, list[dict]] = {}
     for c in cands:
@@ -203,9 +225,13 @@ def render(cfg: dict[str, Any], con) -> str:
 
     L = []
     L.append("# CRRT itemid inventory — evidence for manual review\n\n")
+    patients, stays = con.execute(
+        "SELECT count(DISTINCT subject_id), count(DISTINCT stay_id) FROM icustays"
+    ).fetchone()
     L.append(
-        "Generated by `uv run python -m crrt.itemid_inventory` against the "
-        "**MIMIC-IV Clinical Database Demo 2.2** (100 patients, 140 ICU stays).\n\n"
+        "Generated by `uv run python -m crrt.itemid_inventory` against "
+        f"`{cfg['paths']['mimic_dir']}` ({count(patients, small)} patients with an ICU "
+        f"stay, {count(stays, small)} ICU stays).\n\n"
     )
     L.append(
         "> **This file decides nothing.** Plan Part 2.3 requires that every itemid be\n"
@@ -215,10 +241,16 @@ def render(cfg: dict[str, Any], con) -> str:
         "> into `docs/data_dictionary.md`.\n\n"
     )
     L.append(
-        "> **Demo-scale caveat.** Counts and percentiles here come from 100 patients. "
-        "They are enough to reject an itemid that is empty or mislabelled, and *not* "
-        "enough to accept one as representative. Re-run against the full database "
-        "before locking the list.\n\n"
+        f"> **Small cells (Part 1.4).** Every count from 1 to {small - 1} is shown as "
+        f"`<{small}`. Percentiles are shown as — unless at least {small} values from "
+        f"at least {small} stays stand behind them. Text values charted fewer than "
+        f"{small} times are not listed.\n\n"
+    )
+    L.append(
+        "> **Scale.** Counts come from the database named above. A build on the "
+        "demo can reject an itemid that is empty or mislabelled, but "
+        "cannot show that one is representative. Lock the list from a full-database "
+        "run.\n\n"
     )
 
     # ---- how candidates were selected -------------------------------------
@@ -257,7 +289,7 @@ def render(cfg: dict[str, Any], con) -> str:
     )
     L.append("| Definition | Note | Distinct `stay_id` |\n|---|---|---:|\n")
     for name, note, n in crrt_stay_counts(con, inv, cands):
-        L.append(f"| {name} | {note} | **{n}** |\n")
+        L.append(f"| {name} | {note} | **{count(n, small)}** |\n")
 
     # ---- evidence tables --------------------------------------------------
     L.append("\n## Evidence table\n\n")
@@ -269,7 +301,7 @@ def render(cfg: dict[str, Any], con) -> str:
         f"the channel column.\n\n"
         f"`inputevents` and `ingredientevents` items appear **twice**, once for `amount` "
         f"and once for `rate` — both are real channels and reporting only one would hide "
-        f"evidence. Items with no rows in the demo are listed with `n rows` = 0.\n\n"
+        f"evidence. Items with no rows in this database are listed with `n rows` = 0.\n\n"
     )
 
     hdr = ("| include? / reason | itemid | label | category | concept | channel | "
@@ -279,7 +311,7 @@ def render(cfg: dict[str, Any], con) -> str:
 
     for linksto in sorted(by_table):
         rows = sorted(by_table[linksto], key=lambda r: (r["category"] or "", r["label"] or ""))
-        stats = measure(con, linksto, [r["itemid"] for r in rows], inv)
+        stats = measure(con, linksto, [r["itemid"] for r in rows], inv, small)
         L.append(f"\n### `{linksto}` — {len(rows)} candidates\n\n")
         L.append(hdr)
         for r in rows:
@@ -292,14 +324,15 @@ def render(cfg: dict[str, Any], con) -> str:
                 p = [_num(v) for v in s["pcts"]]
                 L.append(
                     f"|  | {r['itemid']} | {_esc(r['label'])} | {_esc(r['category'])} | "
-                    f"{mark} | {channel} | {s['n_rows']:,} | {s['n_stays']:,} | "
-                    f"{s['n_num']:,} | {_esc(s['units'])} | {p[0]} | {p[1]} | {p[2]} | "
+                    f"{mark} | {channel} | {count(s['n_rows'], small)} | "
+                    f"{count(s['n_stays'], small)} | {count(s['n_num'], small)} | "
+                    f"{_esc(s['units'])} | {p[0]} | {p[1]} | {p[2]} | "
                     f"{_esc(r['matched_by'])} |\n"
                 )
 
     # ---- text vocabulary appendix ----------------------------------------
     limit = inv["max_text_values_listed"]
-    tv = text_values(con, cands, inv, limit)
+    tv = text_values(con, cands, inv, limit, small)
     L.append(f"\n## Appendix — value vocabulary of the `{inv['seed_category']}` Text items\n\n")
     L.append(
         "Text items have no percentiles, so the table above shows nothing for them. "
@@ -307,18 +340,20 @@ def render(cfg: dict[str, Any], con) -> str:
         "Change` and `224146 System Integrity` are the two the circuit-failure label "
         "(Part 5.1) is built from — read these before writing that label rule.\n\n"
     )
-    L.append(f"| itemid | label | distinct values in demo | top {limit} values (count) |\n")
+    L.append(f"| itemid | label | values charted ≥{small} times | top {limit} values (count) |\n")
     L.append("|---|---|--:|---|\n")
     label_of = {c["itemid"]: c["label"] for c in cands}
     for itemid in sorted(tv):
-        vals, n_distinct = tv[itemid]
+        vals, n_distinct, has_rare = tv[itemid]
+        if has_rare:
+            vals = vals + [f"*(plus values charted <{small} times, not listed)*"]
         L.append(f"| {itemid} | {_esc(label_of[itemid])} | {n_distinct} | "
                  f"{_esc(', '.join(vals))} |\n")
     absent = [c["itemid"] for c in cands
               if c["category"] == inv["seed_category"] and c["linksto"] == "chartevents"
               and c["param_type"] == "Text" and c["itemid"] not in tv]
     if absent:
-        L.append(f"\nText items in `{inv['seed_category']}` with **no rows** in the demo: "
+        L.append(f"\nText items in `{inv['seed_category']}` with **no rows** in this database: "
                  f"{', '.join(map(str, sorted(absent)))}.\n")
     return "".join(L)
 
