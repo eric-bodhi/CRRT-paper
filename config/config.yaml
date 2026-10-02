@@ -33,7 +33,9 @@ reproducibility:
 paths:
   # Relative to the repo root. Everything here is under data/, which is
   # gitignored (Part 2.4): no data file is ever committed.
-  demo_dir: data/mimic-iv-clinical-database-demo-2.2
+  # Unpacked MIMIC-IV 3.1 (hosp/, icu/). The demo has the same layout, so
+  # pointing this at it runs the pipeline unchanged (Part 1.6).
+  mimic_dir: data/mimiciv/3.1
   duckdb: data/crrt.duckdb
   parquet_dir: data/parquet
 
@@ -126,7 +128,15 @@ itemid_inventory:
 
 cohort:                                     # Plan Part 4
   min_age_years: 18                         # 4.1 — adults at ICU admission
-  min_session_duration_hours: 4             # 4.1 — UNLOCKED, plan says "e.g. >=4h"
+  # 4.1 — circuits shorter than this are documentation artifacts (841 are
+  # under 1 h). Locked 2026-10-02 (docs/decisions.md). Applied to
+  # crrt_circuits.duration_hours at the cohort step.
+  min_session_duration_hours: 4
+  # 4.2 — chronic dialysis dependence (ESRD / dialysis-dependence ICD codes;
+  # 22% of circuits, 337 documented clots). Kept and flagged in the primary
+  # analysis; excluded in a sensitivity analysis. Locked 2026-10-02.
+  esrd_handling_primary: keep_and_flag
+  esrd_handling_sensitivity: exclude
   # 4.5 — below this event count you are in a case-series regime, not a
   # modeling regime. Say so honestly rather than fitting XGBoost to it.
   min_events_for_modeling: 100
@@ -137,6 +147,63 @@ sessionization:                             # Plan Part 4.4
   gap_hours: 2
   # 4.4 explicitly requires sensitivity analyses at these gaps.
   gap_hours_sensitivity: [1, 4]
+
+
+circuits:                                   # Plan Parts 4.3, 4.4, 5.1
+  # The circuit is the unit of analysis (Part 4.3): one filter, from the first
+  # machine charting after it is primed to the last before it comes down.
+  # It is defined by FILTER IDENTITY, not by charting gaps. Under the plain
+  # gap rule above, 43% of circuits >=4 h end with no documentation, and 66%
+  # of those resume without a New Filter: they are pauses on the same filter,
+  # not circuit ends (docs/feasibility.md §2.2). sessionization.gap_hours now
+  # only cuts a stay into segments of continuous charting; this block decides
+  # which segments belong to the same filter.
+  # Definition and max_downtime_hours decided 2026-10-02 (docs/decisions.md).
+  # The documentation windows are carried over unchanged from the
+  # feasibility queries.
+
+  # A row of any of these with a numeric value means the machine was running
+  # at that charttime. Blood flow plus the four raw circuit pressures: all are
+  # charted in every era, unlike 229247 TMP / 229248 Pressure Drop, which do
+  # not exist before ~2014 (feasibility §1).
+  machine_itemids: [224144, 224149, 224150, 224151, 224152]
+  # 224146 System Integrity carries New Filter / Clotted / Clots Increasing /
+  # Discontinued / Recirculating (380,652 rows, 2,901 stays). 225956 Reason
+  # for CRRT Filter Change is sparse (350 rows) but used where present.
+  system_integrity_itemid: 224146
+  filter_change_reason_itemid: 225956
+
+  # A gap between segments no longer than this, with no New Filter and no
+  # documented end, is downtime on the same filter; a longer gap starts a new
+  # circuit. Locked 2026-10-02. The documented-clot count barely moves with it (1,657 /
+  # 1,674 / 1,678 at 4 / 6 / 12 h); only the undocumented bucket does
+  # (feasibility §2.2).
+  max_downtime_hours: 6
+  max_downtime_hours_sensitivity: [4, 12]
+
+  # A New Filter charted inside a segment starts a new circuit only when it
+  # is at least this far past the segment start. Earlier than that, it is
+  # documenting the filter the segment started on: 58% of New Filter events
+  # fall in a segment's first hour (feasibility §2.2).
+  new_filter_min_hours_after_segment_start: 1
+
+  # Documentation windows as [hours before, hours after] an anchor. The
+  # anchor is the circuit start for new_filter_at_start and the circuit end
+  # (last machine charting) for the rest. They lean after the end because the
+  # take-down is charted once the machine has stopped.
+  windows_hours:
+    new_filter_at_start: [3, 1]
+    clotted_at_end: [2, 3]
+    clots_increasing_at_end: [3, 1]
+    stopped_at_end: [2, 3]            # Discontinued or Recirculating
+    reason_at_end: [2, 6]             # 225956
+    death_after_end: [1, 12]          # admissions.deathtime
+    icu_discharge_after_end: [1, 6]   # icustays.outtime
+
+  # A circuit at least this long that no higher class explains ended at the
+  # scheduled change (outcomes.circuit_failure.scheduled_change_interval_hours,
+  # 72 h), less slack for when in the shift the swap was done.
+  reached_limit_hours: 66
 
 
 prediction:                                 # Plan Part 6
@@ -172,9 +239,24 @@ outcomes:
     # Part 13 kill checkpoint (end of week 9): below this kappa, circuit
     # failure drops to secondary and hypophosphatemia is promoted.
     adjudication_min_kappa: 0.6
+    # crrt_circuits.termination_class values that are the event. Primary:
+    # documented Clotted only, which leaves nurse-charted Clots Increasing
+    # free to be a feature and the comparator rule (Part 8.1). Sensitivity:
+    # add clots_increasing. Locked 2026-10-02 (docs/decisions.md).
+    event_classes_primary: [clotted]
+    event_classes_sensitivity: [clotted, clots_increasing]
+    # Circuits that end in death can never become events; they are censored
+    # under the Part 5.3 competing-risk framing, not counted as non-events.
+    competing_risk_classes: [death]
     # 5.1 step 5 — pre-specified, so it cannot be chosen after seeing results.
-    unclear_handling_primary: exclude
-    unclear_handling_sensitivity: non_event
+    # "Unclear" is termination_class 'undocumented' (14.5% of circuits >=4 h,
+    # about a quarter of them probably hidden clots, feasibility §2.4).
+    # Excluding by how a circuit ended is unknowable at prediction time, so
+    # the primary keeps them as non-events. Reversed from the original
+    # exclude / non_event on 2026-10-02 (feasibility §6 proposal 3).
+    unclear_classes: [undocumented]
+    unclear_handling_primary: non_event
+    unclear_handling_sensitivity: exclude
 
   hypophosphatemia:                         # Plan Part 5.2 — secondary outcome
     # Incident serum phosphate during CRRT, in a patient not already below
@@ -188,8 +270,13 @@ outcomes:
 
 features:                                   # Plan Part 7
   # Windows over which last value / mean / min / max / slope / variance are
-  # computed for each machine and clinical signal.
-  window_hours: [1, 3, 6]
+  # computed for each machine and clinical signal. Changed from [1, 3, 6] on
+  # 2026-10-02: machine charting is hourly (median interval 60 min,
+  # feasibility §1), so a 1 h window holds a single point.
+  window_hours: [3, 6, 12]
+  # Slope and variance are computed only from at least this many points in
+  # the window; with fewer they are missing (and flagged), not zero.
+  min_points_for_trend: 3
 
   # Plan 7 requires physiologic plausibility bounds, unit harmonization and
   # duplicate resolution to live here rather than scattered through notebooks.
@@ -198,6 +285,13 @@ features:                                   # Plan Part 7
   # value distribution) before trusting any range. Populate per variable as
   # itemids are validated, and mirror each entry in docs/data_dictionary.md.
   plausibility_bounds: {}
+
+
+reporting:                                  # Plan Part 1.4
+  # Printed counts below this are shown as "<10", in console output and in
+  # anything committed. PhysioNet small-cell rule; team position in
+  # docs/decisions.md (2026-10-02, aggregate results).
+  small_cell_threshold: 10
 
 
 validation:                                 # Plan Parts 8.2, 9

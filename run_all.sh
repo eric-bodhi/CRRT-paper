@@ -9,7 +9,7 @@
 #
 # Usage: ./run_all.sh
 #
-# Implemented so far: database build and the itemid evidence sweep.
+# Implemented so far: database build, the itemid evidence sweep, and circuits.
 
 set -euo pipefail
 
@@ -24,10 +24,13 @@ uv run python -m crrt.build_db
 #     decided BY HAND in that file; this only gathers the evidence.
 uv run python -m crrt.itemid_inventory
 
+# 2. Circuits (Parts 4.3, 4.4, 5.1): one row per filter, with how it ended
+#    -> table crrt_circuits. Prints aggregate counts only.
+uv run python -m crrt.circuits
+
 # Stages below are not implemented yet. Uncomment as each lands.
 #
 # 1b. Extraction       (Part 2.3, 4)   cohort from the reviewed itemid list
-# 2. Sessionization    (Part 4.4)      stitch hourly rows into sessions/circuits
 # 3. STROBE counts     (Part 4.6)      exact N at every exclusion step
 # 4. Outcome labels    (Part 5)        circuit failure + hypophosphatemia
 # 5. Features          (Part 7)        windowed machine/clinical features
