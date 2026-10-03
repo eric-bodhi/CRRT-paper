@@ -1,0 +1,247 @@
+# ============================================================================
+# Hand review of every candidate in docs/itemids.md (plan Part 2.3).
+#
+# This file is the record of the review, and the only place a verdict lives.
+# `crrt.itemid_inventory` regenerates docs/itemids.md on every run of
+# run_all.sh and writes each verdict below into that file's `include? / reason`
+# column. A verdict typed straight into docs/itemids.md would be erased by the
+# next run.
+#
+# Reviewed 2026-10-02 against the full MIMIC-IV 3.1 build. Every number quoted
+# in a reason is an aggregate with cells under 10 suppressed (decisions.md,
+# 2026-10-02). "Circuits" means crrt_circuits rows of at least
+# cohort.min_session_duration_hours (8,414). The evidence and the judgment
+# calls are summarised in docs/decisions.md, 2026-10-02, "Itemid review".
+#
+# verdict: include | exclude
+# roles (include only), i.e. what the item is FOR:
+#   circuit     defines circuits: machine running, filter events (Part 4.4)
+#   label       documents how a circuit ended (Part 5.1)
+#   comparator  input to a simple comparator rule (Part 8.1)
+#   feature     candidate predictor (Part 7). A candidate, not a commitment:
+#               the feature stage still applies plausibility bounds and the
+#               leakage checklist
+#   hypophos    input to the hypophosphatemia outcome: repletion or
+#               phosphate-containing fluid (Part 5.2)
+#   cohort      inclusion, exclusion or flag (Part 4.1-4.2)
+#   validation  used only to check the circuit definition, never as an input
+#
+# Laboratory values are deliberately absent. MIMIC copies them into
+# chartevents, and they are taken from hosp.labevents instead (see the Labs
+# block below). Labevents itemids are not in this sweep: they come through
+# the mimic-code chemistry, coagulation and complete_blood_count concepts.
+# ============================================================================
+
+items:
+
+  # --------------------------------------------------------------------------
+  # chartevents — Access Lines - Invasive
+  # --------------------------------------------------------------------------
+  225740: {verdict: exclude, reason: "Catheter removal is documented by the 224270 procedureevents endtime."}
+  227357: {verdict: exclude, reason: "Dressing checkbox. Nursing care, not on either outcome's pathway."}
+  225776: {verdict: exclude, reason: "No rows."}
+  227753: {verdict: exclude, reason: "X-ray confirmation of placement. Charted once, says nothing about function."}
+  225323: {verdict: exclude, reason: "Site appearance (infection surveillance). Not on either outcome's pathway."}
+  225725: {verdict: exclude, reason: "Tip culture (infection work-up). Not on either outcome's pathway."}
+  227124: {verdict: include, roles: [feature, cohort], reason: "Catheter type: Temporary (Quinton) / Temporary with VIP port / Tunneled (PermaCath), 1,121 / 685 / 620 stays. Catheter type affects achievable blood flow and filter life. A tunneled catheter also corroborates chronic dialysis (Part 4.2). Older vocabulary of 229536; harmonise the two."}
+  229536: {verdict: include, roles: [feature, cohort], reason: "Catheter type: Temporary 3-Lumen / Tunneled 2-Lumen / Temporary 2-Lumen, 1,811 / 795 / 398 stays. Newer vocabulary of 227124; same uses."}
+  226118: {verdict: exclude, reason: "Placed at an outside facility. Administrative."}
+  229881: {verdict: exclude, reason: "Biopatch checkbox. Nursing care."}
+  229534: {verdict: exclude, reason: "Multi-lumen CVC, not the dialysis access (`lumen` pattern noise)."}
+  227293: {verdict: exclude, reason: "Multi-lumen CVC, not the dialysis access (`lumen` pattern noise)."}
+  225780: {verdict: exclude, reason: "No rows. Multi-lumen CVC."}
+  225744: {verdict: exclude, reason: "Multi-lumen CVC, not the dialysis access (`lumen` pattern noise)."}
+  225729: {verdict: exclude, reason: "Multi-lumen CVC, not the dialysis access (`lumen` pattern noise)."}
+  227756: {verdict: exclude, reason: "Multi-lumen CVC, not the dialysis access (`lumen` pattern noise)."}
+  224281: {verdict: exclude, reason: "Multi-lumen CVC, not the dialysis access (`lumen` pattern noise)."}
+  224283: {verdict: exclude, reason: "Multi-lumen CVC, not the dialysis access (`lumen` pattern noise)."}
+  225206: {verdict: exclude, reason: "Multi-lumen CVC, not the dialysis access (`lumen` pattern noise)."}
+  226113: {verdict: exclude, reason: "Multi-lumen CVC, not the dialysis access (`lumen` pattern noise)."}
+  229538: {verdict: exclude, reason: "PICC flag (`heparin` pattern noise)."}
+
+  # --------------------------------------------------------------------------
+  # chartevents — admission history
+  # --------------------------------------------------------------------------
+  225126: {verdict: include, roles: [cohort], reason: "Admission-history checkbox recording pre-admission status; a source of the chronic dialysis flag (cohort.chronic_dialysis). Charted in only 1,043 of 2,798 stays with a circuit (37%); where both exist it agrees only partly with ICD (decisions.md, chronic dialysis flag)."}
+
+  # --------------------------------------------------------------------------
+  # chartevents — Dialysis: the CRRT machine
+  # --------------------------------------------------------------------------
+  224144: {verdict: include, roles: [circuit, feature], reason: "Blood flow, ml/min in every row, p1–p99 120–250. 77 zero rows and 17 negative rows go to plausibility bounds. No duplicate charttimes. In circuits.machine_itemids."}
+  224149: {verdict: include, roles: [circuit, feature, comparator], reason: "Access (arterial) pressure, mmHg, p1–p99 -151 to -1. Negative by design: 339,000 of 342,216 rows. The few positive values are not concentrated in ECMO stays, so they are bounds candidates. In circuits.machine_itemids."}
+  224150: {verdict: include, roles: [circuit, feature, comparator], reason: "Filter (pre-filter) pressure, mmHg, p1–p99 54–280. Rises as the filter clots. Input to the derived pressure drop and TMP. In circuits.machine_itemids."}
+  224151: {verdict: include, roles: [circuit, feature, comparator], reason: "Effluent pressure, mmHg, p1–p99 -142 to 106. Sign varies by design (60% negative). Input to the derived TMP. In circuits.machine_itemids."}
+  224152: {verdict: include, roles: [circuit, feature, comparator], reason: "Return (venous) pressure, mmHg, p1–p99 9–161. Input to the derived pressure drop and TMP. In circuits.machine_itemids."}
+  229247: {verdict: include, roles: [feature, comparator], reason: "Machine-computed TMP, mmHg, p50 81. Only 2,094 stays: 38% of 2008–2013, 91% of 2014–2016, all of 2017–2022 (by anchor_year_group). Tracks (filter+return)/2 - effluent at a stable -16.5 mmHg offset, within ±10 in 91% of rows, so it can be derived where it is not charted (decisions.md)."}
+  229248: {verdict: include, roles: [feature, comparator], reason: "Machine-computed pressure drop, mmHg, p50 42. Same era coverage as 229247. Tracks filter - return at a -27 mmHg offset, within ±10 in 75% of rows (60% in 2020–2022). The Hu 2026 rule is built on it (Part 3.1)."}
+  224146: {verdict: include, roles: [circuit, label, comparator], reason: "System Integrity. Exactly 10 values, all charted ≥10 times: New Filter / Clotted / Clots Increasing / Discontinued / Recirculating and others. Carries filter identity (circuit), the primary event (label) and Clots Increasing (the nurse comparator, Part 8.1). Every row has a value."}
+  225956: {verdict: include, roles: [circuit, label], reason: "Reason for filter change. Sparse (350 rows, 267 stays) but unambiguous: Clotted / Procedure / Line changed. Used where present (circuits.filter_change_reason_itemid)."}
+  227290: {verdict: include, roles: [feature], reason: "CRRT mode: CVVHDF 95% of rows, CVVHD, CVVH, SCUF. Modality changes filtration fraction and so clotting risk."}
+  228004: {verdict: include, roles: [feature], reason: "Citrate (ACD-A) rate, ml/hr, hourly from the machine. >0 in 6,190 of 8,414 circuits (74%): the main anticoagulation signal. Zeros (71,025 rows) mean citrate off, not missing."}
+  224145: {verdict: include, roles: [feature], reason: "Circuit heparin dose. The unit is charted as `units` but the item is per hour (label). >0 in 1,928 circuits; 0 in 71% of rows (no circuit heparin)."}
+  225958: {verdict: exclude, reason: "Heparin concentration, Text. 89% `Not applicable`. 224145 already records the dose in units, so concentration adds nothing."}
+  224191: {verdict: include, roles: [feature], reason: "Hourly patient fluid removal (net UF setting), mL, p50 360. Drives filtration fraction. Not interchangeable with 226457: within 10 mL at the same charttime in only 44% of rows."}
+  225183: {verdict: include, roles: [feature], reason: "Current fluid balance goal, mL, p1–p99 -300 to 250. A prescription signal; 0 in 41% of rows."}
+  226457: {verdict: include, roles: [feature], reason: "Ultrafiltrate output, mL, p50 352. Achieved removal, distinct from the 224191 setting (see there). 2.3% of rows fall outside circuits (intermittent HD/SCUF); use only rows inside a circuit."}
+  224153: {verdict: include, roles: [feature, hypophos], reason: "Replacement rate, ml/hr, p50 1800. Part of delivered dose, which drives both filtration fraction (clotting) and phosphate clearance (Part 3.2)."}
+  228005: {verdict: include, roles: [feature, hypophos], reason: "Pre-blood-pump (pre-filter) replacement rate, ml/hr, p50 1500. Pre-filter dilution lowers clotting risk. Part of delivered dose."}
+  228006: {verdict: include, roles: [feature, hypophos], reason: "Post-filter replacement rate, ml/hr, p50 200. Post-filter replacement raises filtration fraction. Part of delivered dose."}
+  224154: {verdict: include, roles: [feature, hypophos], reason: "Dialysate rate, ml/hr, p50 800. 0 in 6% of rows (CVVH/SCUF). Part of delivered dose."}
+  225976: {verdict: include, roles: [hypophos], reason: "Replacement fluid, Text: Prismasate K2/K4 in 99%. Phoxillium (phosphate-containing) is not a value here, but `Other` (2,232 rows) may hide it. Charted in every era."}
+  230083: {verdict: include, roles: [hypophos], reason: "Pre-filter replacement fluid, Text. Phoxillium B22/K4 in 4,529 rows (92 stays), the only way to see phosphate-containing fluid besides 230084. 412 stays, two-thirds of them 2020–2022."}
+  230084: {verdict: include, roles: [hypophos], reason: "Post-filter replacement fluid, Text. Phoxillium B22/K4 in 14,156 rows (168 stays). Same era as 230083."}
+  225977: {verdict: exclude, reason: "Dialysate fluid, Text: Prismasate K2/K4, None, Normal Saline, K0. It never holds a phosphate-containing value, so it adds nothing to either outcome. Dialysate volume is in 224154."}
+  230085: {verdict: exclude, reason: "Dialysate fluid (newer vocabulary): Prismasate B32/K2, B22/K4, None. No phosphate-containing value."}
+  224404: {verdict: exclude, reason: "Arterial lumen lock volume. A catheter property, half its rows outside circuits. Tested as a proxy for catheter site and it does not separate them (median 1.2 IJ vs 1.4 femoral, overlapping IQRs)."}
+  224406: {verdict: exclude, reason: "Venous lumen lock volume. Same as 224404."}
+  230177: {verdict: exclude, reason: "CRRT filter type. No rows; it would have been useful."}
+  224135: {verdict: exclude, reason: "No rows."}
+  224139: {verdict: exclude, reason: "No rows."}
+  225954: {verdict: exclude, reason: "18 rows in under 10 stays."}
+  227438: {verdict: exclude, reason: "No rows."}
+  226499: {verdict: include, roles: [cohort], reason: "Hemodialysis (intermittent) output, mL, p50 2000. Charted in 863 stays with a circuit. With 225441, describes IHD next to CRRT. Not evidence of chronic dialysis (see 225441)."}
+  # Peritoneal dialysis: 14 stays with a circuit have the PD procedure and
+  # 44 have PD charting. Too few to model on. A PD patient is dialysis
+  # dependent, but these numbers do not justify a separate flag source.
+  225810: {verdict: exclude, reason: "Peritoneal dialysis. Under 50 stays with a circuit have any PD charting."}
+  225952: {verdict: exclude, reason: "Peritoneal dialysis."}
+  227638: {verdict: exclude, reason: "Peritoneal dialysis."}
+  225959: {verdict: exclude, reason: "Peritoneal dialysis."}
+  227639: {verdict: exclude, reason: "Peritoneal dialysis."}
+  225961: {verdict: exclude, reason: "Peritoneal dialysis."}
+  227640: {verdict: exclude, reason: "Peritoneal dialysis."}
+  225965: {verdict: exclude, reason: "Peritoneal dialysis."}
+  225963: {verdict: exclude, reason: "Peritoneal dialysis."}
+  225951: {verdict: exclude, reason: "Peritoneal dialysis."}
+  225953: {verdict: exclude, reason: "Peritoneal dialysis."}
+  225806: {verdict: exclude, reason: "Peritoneal dialysis."}
+  225807: {verdict: exclude, reason: "Peritoneal dialysis."}
+
+  # --------------------------------------------------------------------------
+  # chartevents — Labs. Every one of these is excluded for the same reason:
+  # it is a copy of a hosp.labevents result. 225677 Phosphorous matches
+  # labevents 50970 at the same subject and charttime in 99.6% of rows, and
+  # 229375 Anti-Xa matches labevents 51228 in 99.6%. Labevents is the source
+  # of record. It has storetime for the leakage checklist (phosphate: median
+  # 83 min after charttime, p95 248 min), and it is what the mimic-code
+  # concepts read.
+  # --------------------------------------------------------------------------
+  225612: {verdict: exclude, reason: "Lab copy; use labevents."}
+  225625: {verdict: exclude, reason: "Lab copy; use labevents 50893 Calcium, Total."}
+  220615: {verdict: exclude, reason: "Lab copy; use labevents 50912 Creatinine."}
+  229761: {verdict: exclude, reason: "Lab copy; use labevents."}
+  225667: {verdict: exclude, reason: "Lab copy; use labevents 50808 Free Calcium (needed for the citrate total:ionized ratio)."}
+  220635: {verdict: exclude, reason: "Lab copy; use labevents 50960 Magnesium."}
+  225677: {verdict: exclude, reason: "Lab copy (99.6% match); use labevents 50970 Phosphate, the hypophosphatemia outcome source."}
+  227442: {verdict: exclude, reason: "Lab copy; use labevents 50971 Potassium."}
+  227464: {verdict: exclude, reason: "Lab copy; use labevents."}
+  229375: {verdict: exclude, reason: "Lab copy (99.6% match); use labevents 51228 Heparin (anti-Xa)."}
+  229373: {verdict: exclude, reason: "No rows."}
+  220640: {verdict: exclude, reason: "No rows (Z-prefixed retired item)."}
+  226535: {verdict: exclude, reason: "No rows (Z-prefixed retired item)."}
+  220507: {verdict: exclude, reason: "Activated clotting time, point of care, 197 stays with a circuit. Mostly ECMO and cardiac-surgery heparin monitoring; PTT from the coagulation concept is the CRRT heparin monitor."}
+
+  # --------------------------------------------------------------------------
+  # chartevents — pattern noise
+  # --------------------------------------------------------------------------
+  228698: {verdict: exclude, reason: "MD progress note heading (`renal` pattern noise)."}
+  229567: {verdict: exclude, reason: "MD progress note heading; under 10 rows."}
+  228708: {verdict: exclude, reason: "MD progress note heading; under 10 rows."}
+  229992: {verdict: exclude, reason: "Anaesthesia ventilator filter (`filter` pattern noise)."}
+  229987: {verdict: exclude, reason: "No rows. Ventilator filter."}
+  229990: {verdict: exclude, reason: "Anaesthesia ventilator filter (`filter` pattern noise)."}
+  226748: {verdict: exclude, reason: "APACHE II component, 20 rows."}
+  226751: {verdict: exclude, reason: "APACHE II component, 19 rows."}
+  226752: {verdict: exclude, reason: "APACHE II component, 16 rows."}
+  226771: {verdict: exclude, reason: "APACHE II component, 19 rows."}
+  226772: {verdict: exclude, reason: "APACHE II component, 17 rows."}
+  227005: {verdict: exclude, reason: "APACHE IV component; under 10 rows."}
+  229878: {verdict: exclude, reason: "ECMO circuit clot check (`clot` pattern), not the CRRT circuit. ECMO itself is a Part 7 covariate: 482 circuits in 88 stays, clot rate 18.5% vs 20.0%."}
+  229269: {verdict: exclude, reason: "ECMO circuit clot check; see 229878."}
+  227647: {verdict: exclude, reason: "Obstetric clot size (`clot` pattern noise)."}
+  227648: {verdict: exclude, reason: "Obstetric clots (`clot` pattern noise)."}
+
+  # --------------------------------------------------------------------------
+  # datetimeevents
+  # --------------------------------------------------------------------------
+  225318: {verdict: exclude, reason: "Catheter cap change. Maintenance."}
+  225319: {verdict: exclude, reason: "Catheter exchange over a wire. Date only; 556 stays."}
+  225321: {verdict: exclude, reason: "Catheter dressing change. Maintenance."}
+  225322: {verdict: include, roles: [feature], reason: "Dialysis catheter insertion date, 4,258 stays. Gives catheter age at circuit start, including catheters placed before the ICU stay, which 224270 starttime misses. Date-only granularity."}
+  225324: {verdict: exclude, reason: "Catheter tubing change. Maintenance."}
+  224261: {verdict: exclude, reason: "Multi-lumen CVC."}
+  224262: {verdict: exclude, reason: "Multi-lumen CVC."}
+  224279: {verdict: exclude, reason: "Multi-lumen CVC."}
+  224280: {verdict: exclude, reason: "Multi-lumen CVC."}
+  224282: {verdict: exclude, reason: "Multi-lumen CVC."}
+  225128: {verdict: include, roles: [cohort], reason: "Date of last dialysis, admission history. A source of the chronic dialysis flag when the date precedes the first circuit; Charted in 235 of 2,798 stays with a circuit; 197 of those also have ICD ESRD and 225126 = 1."}
+  226482: {verdict: exclude, reason: "No rows. Blood bank (`clot` pattern noise)."}
+
+  # --------------------------------------------------------------------------
+  # ingredientevents
+  # --------------------------------------------------------------------------
+  220994: {verdict: exclude, reason: "No rows."}
+  220363: {verdict: exclude, reason: "Calcium ingredient of 221456 and 227525: its 115,513 rows are exactly their 68,135 + 47,378. Use the inputevents items."}
+  220422: {verdict: exclude, reason: "No rows."}
+  220448: {verdict: exclude, reason: "No rows."}
+  220451: {verdict: exclude, reason: "No rows."}
+
+  # --------------------------------------------------------------------------
+  # inputevents
+  # --------------------------------------------------------------------------
+  225899: {verdict: exclude, reason: "Bactrim (`tmp` pattern noise)."}
+  225890: {verdict: exclude, reason: "Penicillin G potassium (`potassium` pattern noise)."}
+  220969: {verdict: exclude, reason: "No rows."}
+  221211: {verdict: exclude, reason: "No rows."}
+  225165: {verdict: exclude, reason: "No rows."}
+  227533: {verdict: exclude, reason: "Sodium bicarbonate ampoule. Not on either outcome's pathway."}
+  220995: {verdict: exclude, reason: "Sodium bicarbonate infusion. Not on either outcome's pathway."}
+  225164: {verdict: exclude, reason: "No rows."}
+  227529: {verdict: include, roles: [feature], reason: "ACD-A citrate (1000 ml bag), the medication record of the citrate infusion. Overlaps 5,096 circuits, 4,863 of them also with 228004 > 0. Secondary source for the anticoagulation class where 228004 is absent."}
+  227528: {verdict: include, roles: [feature], reason: "ACD-A citrate (500 ml bag), 38 stays. Same role as 227529."}
+  227526: {verdict: exclude, reason: "Citrate in mmol. The same infusion as 227529/227528 in a second unit (5,113 vs 5,096 circuits), so it adds nothing."}
+  225147: {verdict: include, roles: [feature], reason: "Argatroban, mcg/kg/min, 126 circuits. Systemic anticoagulation, used in HIT, where heparin is contraindicated."}
+  225148: {verdict: include, roles: [feature], reason: "Bivalirudin, mg/kg/hour (under 10 rows in mg/hour need harmonising), 115 circuits. Systemic anticoagulation."}
+  229781: {verdict: exclude, reason: "Bivalirudin for Impella purge, under 10 stays. Device purge, not systemic dosing."}
+  229618: {verdict: exclude, reason: "Calcium chloride, mixed grams/mg. General repletion, not on either v1 outcome's pathway."}
+  221456: {verdict: exclude, reason: "Calcium gluconate, general repletion. Not on either v1 outcome's pathway."}
+  229640: {verdict: exclude, reason: "Calcium gluconate bolus, general repletion."}
+  228317: {verdict: exclude, reason: "No rows."}
+  227525: {verdict: include, roles: [feature], reason: "Calcium gluconate (CRRT), grams/hour, 2,280 stays. The calcium arm of the citrate protocol: 4,740 of 6,417 circuits that have it also have citrate charted. It tracks citrate intensity, and rising requirement is the citrate-accumulation signal (Part 3 table)."}
+  225152: {verdict: include, roles: [feature], reason: "Heparin infusion, units/hour, overlaps 1,954 circuits. Systemic anticoagulation, separate from the circuit dose 224145."}
+  230044: {verdict: exclude, reason: "Heparin (CRRT pre-filter) as an infusion, under 10 stays. Circuit heparin is charted in 224145."}
+  229597: {verdict: exclude, reason: "Heparin for Impella purge. Device purge, not systemic dosing."}
+  225975: {verdict: exclude, reason: "Prophylactic subcutaneous heparin, recorded as `dose` only. Negligible effect on circuit anticoagulation."}
+  227536: {verdict: exclude, reason: "Potassium chloride added to CRRT fluid. Not on either outcome's pathway."}
+  222011: {verdict: exclude, reason: "Magnesium repletion. Not on either outcome's pathway."}
+  227523: {verdict: exclude, reason: "Magnesium repletion."}
+  227524: {verdict: exclude, reason: "Magnesium (obstetric protocol)."}
+  225166: {verdict: exclude, reason: "Potassium chloride repletion. Not on either outcome's pathway."}
+  225834: {verdict: include, roles: [hypophos], reason: "K Phos, mmol, 418 stays with a circuit. Phosphate repletion, the competing intervention Part 5.2 says to account for. Missed by the `phosph` pattern until 2026-10-02."}
+  225835: {verdict: include, roles: [hypophos], reason: "Na Phos, mmol, 854 stays with a circuit. Phosphate repletion; same as 225834."}
+  227973: {verdict: exclude, reason: "Renal enteral formula (`renal` pattern noise)."}
+  227972: {verdict: exclude, reason: "No rows."}
+  227974: {verdict: exclude, reason: "Renal enteral formula; under 10 stays."}
+  227975: {verdict: exclude, reason: "Renal enteral formula (`renal` pattern noise)."}
+  226031: {verdict: exclude, reason: "Renal enteral formula (`renal` pattern noise)."}
+  226028: {verdict: exclude, reason: "Renal enteral formula; under 10 rows."}
+  226029: {verdict: exclude, reason: "No rows."}
+  226030: {verdict: exclude, reason: "Renal enteral formula; under 10 stays."}
+  221036: {verdict: exclude, reason: "Renal enteral formula (`renal` pattern noise)."}
+  222139: {verdict: exclude, reason: "No rows."}
+  225925: {verdict: exclude, reason: "No rows. Phosphate repletion is in 225834/225835."}
+
+  # --------------------------------------------------------------------------
+  # procedureevents
+  # --------------------------------------------------------------------------
+  225441: {verdict: include, roles: [cohort], reason: "Intermittent hemodialysis, 730 stays with a circuit. Describes IHD next to CRRT in the stay (Table 1). Not evidence of chronic dialysis: AKI patients often start on IHD before CRRT (decisions.md, chronic dialysis flag)."}
+  224270: {verdict: include, roles: [feature], reason: "Dialysis catheter. In place at the start of about 6,450 of 8,414 circuits. `location` (IJ / femoral / subclavian, by side) is filled in 32% of rows. Site is a known driver of filter life. starttime gives insertion time inside the ICU."}
+  224263: {verdict: exclude, reason: "Multi-lumen CVC, not the dialysis access."}
+  229517: {verdict: exclude, reason: "Cooling catheter, 14 rows."}
+  229516: {verdict: exclude, reason: "Single-lumen line, not the dialysis access."}
+  225436: {verdict: include, roles: [validation], reason: "CRRT filter change, 316 rows. 255 fall within new_filter_at_start of a circuit start and 214 within 3 h of a System Integrity New Filter. Independent corroboration of circuit starts; too sparse to define them."}
+  225802: {verdict: include, roles: [validation, cohort], reason: "Dialysis – CRRT procedure interval, 2,274 stays. Overlaps 6,294 of 8,414 circuits. A cross-check on circuits and the cohort, not their source: a quarter of circuits have no overlapping interval."}
+  225803: {verdict: exclude, reason: "No rows."}
+  225809: {verdict: exclude, reason: "No rows."}
+  225955: {verdict: exclude, reason: "No rows."}
+  225805: {verdict: exclude, reason: "Peritoneal dialysis, 14 stays with a circuit."}

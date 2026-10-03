@@ -9,7 +9,7 @@ disappears from the study. The recall test below is the tripwire for that.
 import pytest
 
 from crrt import config
-from crrt.itemid_inventory import CHANNELS, candidates
+from crrt.itemid_inventory import CHANNELS, REVIEW_PATH, candidates
 
 duckdb = pytest.importorskip("duckdb")
 
@@ -110,7 +110,11 @@ def synthetic_doc():
     rows += [(0, text_item, RARE_TEXT, None, None)]
     rows += [(s, common_numeric, str(s), float(s), "ml/hr") for s in stays]
     c.executemany("INSERT INTO chartevents VALUES (?, ?, ?, ?, ?)", rows)
-    return render(CFG, c)
+    review = {
+        rare_numeric: {"verdict": "include", "roles": ["feature"], "reason": "kept for a test"},
+        text_item: {"verdict": "exclude", "reason": "dropped for a test"},
+    }
+    return render(CFG, c, review)
 
 
 def table_cells(doc: str) -> list[str]:
@@ -145,3 +149,41 @@ def test_rare_text_values_are_not_published(synthetic_doc):
 def test_output_does_not_claim_to_be_the_demo(synthetic_doc):
     assert "Demo 2.2" not in synthetic_doc
     assert CFG["paths"]["mimic_dir"] in synthetic_doc
+
+
+# ── Hand review (config/itemid_review.yaml) ───────────────────────────────
+# docs/itemids.md is regenerated on every run, so the verdicts live in the
+# review file and are copied in. These guard that copy, and that no candidate
+# reaches the pipeline without a verdict.
+
+
+def test_verdicts_are_copied_into_the_include_column(synthetic_doc):
+    lines = synthetic_doc.splitlines()
+    first_cell = {name: next(l for l in lines if f"| {name} |" in l).split("|")[1].strip()
+                  for name in ("rare numeric", "text item", "common numeric")}
+    assert first_cell["rare numeric"] == "**include** (feature): kept for a test"
+    assert first_cell["text item"] == "exclude: dropped for a test"
+    assert first_cell["common numeric"] == "**UNREVIEWED**"
+    assert "2 candidate(s) are UNREVIEWED: 3, 4." in synthetic_doc
+
+
+def test_review_file_is_well_formed():
+    import yaml
+    items = yaml.safe_load(REVIEW_PATH.read_text())["items"]
+    for itemid, v in items.items():
+        assert v["verdict"] in ("include", "exclude"), itemid
+        assert v["reason"].strip(), itemid
+        if v["verdict"] == "include":
+            assert v.get("roles"), f"{itemid} is included without a role"
+
+
+@needs_db
+def test_every_candidate_has_a_verdict_and_every_verdict_a_candidate(con):
+    """Part 2.3: no itemid enters the study without being eyeballed. A new
+    pattern or a new MIMIC release that adds a candidate fails here until
+    the candidate is reviewed."""
+    import yaml
+    items = yaml.safe_load(REVIEW_PATH.read_text())["items"]
+    found = {c["itemid"] for c in candidates(con, CFG["itemid_inventory"])}
+    assert not found - set(items), f"unreviewed: {sorted(found - set(items))}"
+    assert not set(items) - found, f"stale verdicts: {sorted(set(items) - found)}"

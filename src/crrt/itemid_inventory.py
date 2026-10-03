@@ -4,11 +4,14 @@ Plan Part 2.3: "Do not trust remembered itemids ... derive the itemid list by
 joining against icu.d_items and filtering on label patterns, then manually
 eyeball every itemid you keep -- label, unit, row count, value distribution."
 
-This module does the deriving and the measuring. It does NOT decide. Every
-candidate it surfaces goes into the output with an empty "include? / reason"
-cell for a human to fill in by hand. Nothing is dropped for looking like noise:
-the pattern that matched is reported per row so a false positive costs one line
-of review, whereas a silently discarded itemid costs a variable.
+This module does the deriving and the measuring. It does NOT decide. The
+decisions are made by hand in config/itemid_review.yaml, and this module copies
+each one into the "include? / reason" cell of its candidate. They live in that
+file rather than in docs/itemids.md because this module rewrites docs/itemids.md
+on every run. A candidate with no verdict is marked UNREVIEWED. Nothing is
+dropped for looking like noise: the pattern that matched is reported per row so
+a false positive costs one line of review, whereas a silently discarded itemid
+costs a variable.
 
 The output is committed, so every count in it goes through small-cell
 suppression (Part 1.4, `reporting.small_cell_threshold`). Percentiles are
@@ -23,9 +26,12 @@ Usage: uv run python -m crrt.itemid_inventory
 from typing import Any
 
 import duckdb
+import yaml
 
 from crrt import config
 from crrt.report import count
+
+REVIEW_PATH = config.REPO_ROOT / "config" / "itemid_review.yaml"
 
 # The numeric channel(s) and unit column for each event table. chartevents is
 # the only table with a `valuenum`; the others name their numeric column
@@ -212,7 +218,16 @@ def text_values(con, cands, inv: dict[str, Any], limit: int, small: int):
     return {k: (v[:limit], len(v), k in rare) for k, v in shown.items()}
 
 
-def render(cfg: dict[str, Any], con) -> str:
+def verdict_cell(review: dict[int, dict], itemid: int) -> str:
+    v = review.get(itemid)
+    if v is None:
+        return "**UNREVIEWED**"
+    if v["verdict"] == "include":
+        return f"**include** ({', '.join(v['roles'])}): {_esc(v['reason'])}"
+    return f"exclude: {_esc(v['reason'])}"
+
+
+def render(cfg: dict[str, Any], con, review: dict[int, dict]) -> str:
     inv = cfg["itemid_inventory"]
     cands = candidates(con, inv)
     concept = set(inv["mimic_code_crrt_itemids"])
@@ -233,12 +248,15 @@ def render(cfg: dict[str, Any], con) -> str:
         f"`{cfg['paths']['mimic_dir']}` ({count(patients, small)} patients with an ICU "
         f"stay, {count(stays, small)} ICU stays).\n\n"
     )
+    unreviewed = sorted({c["itemid"] for c in cands} - set(review))
     L.append(
-        "> **This file decides nothing.** Plan Part 2.3 requires that every itemid be\n"
+        "> **The sweep decides nothing.** Plan Part 2.3 requires that every itemid be\n"
         "> eyeballed by hand — label, unit, row count, value distribution — before it is\n"
-        "> trusted. The sweep below is deliberately over-inclusive; the `include? / reason`\n"
-        "> column is empty on purpose. Fill it in by hand, then promote whatever survives\n"
-        "> into `docs/data_dictionary.md`.\n\n"
+        "> trusted. The sweep below is deliberately over-inclusive. The `include? / reason`\n"
+        "> column is copied from the hand review in `config/itemid_review.yaml`; edit\n"
+        "> verdicts there, never here, because this file is regenerated on every run.\n"
+        f"> {len(unreviewed)} candidate(s) are UNREVIEWED"
+        + (f": {', '.join(map(str, unreviewed))}." if unreviewed else ".") + "\n\n"
     )
     L.append(
         f"> **Small cells (Part 1.4).** Every count from 1 to {small - 1} is shown as "
@@ -323,7 +341,7 @@ def render(cfg: dict[str, Any], con) -> str:
                          "pcts": [None] * len(pcts)}
                 p = [_num(v) for v in s["pcts"]]
                 L.append(
-                    f"|  | {r['itemid']} | {_esc(r['label'])} | {_esc(r['category'])} | "
+                    f"| {verdict_cell(review, r['itemid'])} | {r['itemid']} | {_esc(r['label'])} | {_esc(r['category'])} | "
                     f"{mark} | {channel} | {count(s['n_rows'], small)} | "
                     f"{count(s['n_stays'], small)} | {count(s['n_num'], small)} | "
                     f"{_esc(s['units'])} | {p[0]} | {p[1]} | {p[2]} | "
@@ -361,10 +379,20 @@ def render(cfg: dict[str, Any], con) -> str:
 def main() -> None:
     cfg = config.load()
     out = config.REPO_ROOT / "docs" / "itemids.md"
+    review = yaml.safe_load(REVIEW_PATH.read_text())["items"]
     con = duckdb.connect(str(config.path(cfg, "duckdb")), read_only=True)
-    out.write_text(render(cfg, con))
+    out.write_text(render(cfg, con, review))
+    cands = {c["itemid"] for c in candidates(con, cfg["itemid_inventory"])}
     con.close()
     print(f"wrote {out}")
+    unreviewed = sorted(cands - set(review))
+    stale = sorted(set(review) - cands)
+    if unreviewed:
+        print(f"WARNING: {len(unreviewed)} candidate(s) have no verdict in "
+              f"{REVIEW_PATH.name}: {unreviewed}")
+    if stale:
+        print(f"WARNING: {len(stale)} verdict(s) in {REVIEW_PATH.name} name no "
+              f"current candidate: {stale}")
 
 
 if __name__ == "__main__":
