@@ -2,6 +2,59 @@
 
 Every judgment call, with its date (plan Part 14). Newest first.
 
+## 2026-10-02 — Cohort rules
+
+**Decision.** `sql/crrt_cohort.sql` keeps every circuit and flags the
+exclusions. `docs/strobe.md` is the flow diagram (Part 4.6). The steps are:
+
+| Step | Circuits | Stays | Patients |
+|---|---:|---:|---:|
+| ICU stays with CRRT documented | — | 3,600 | 3,104 |
+| Circuits built from machine charting | 9,729 | 2,912 | 2,669 |
+| Excluding age < 18 | 9,729 | 2,912 | 2,669 |
+| Excluding circuits < 4 h (analysis cohort) | 8,414 | 2,798 | 2,564 |
+
+The judgment calls behind each step:
+
+- **Entry box.** "CRRT documented" means any item of the mimic-code CRRT
+  concept or a CRRT procedure. 688 of those stays have no circuit: they have
+  CRRT documentation but no machine parameters, the Metavision gap of
+  Part 4.2. They are counted in the flow, not silently lost.
+- **Age.** It is computed as `anchor_age + year(intime) − anchor_year`,
+  the mimic-code `age` concept. MIMIC-IV is adults only, so the step removes
+  nothing. It is kept because Part 4.1 names it, and the flow shows the zero.
+- **Comfort measures only is not applied.** Part 4.2 lists it. 223758 Code
+  Status carries `Comfort measures only` (1,085 rows, 896 stays). Fewer than
+  10 circuits start after it is first charted. Applying the rule could not
+  change any result. Reporting it exactly would disclose a small cell by
+  subtraction, because 8,414 is already published in this log. The methods
+  can say so in one sentence.
+- **No upper limit on circuit duration.** Part 4.2 mentions "implausible
+  CRRT durations". 1,066 circuits run past 72 h and 112 past 120 h. Past
+  96 h they look like several filters stitched together: 3.4–4.7 pieces on
+  average, and only 58–69% start with a New Filter. Excluding them would
+  select on total duration, which is unknown while the circuit runs. That is
+  the same objection that reversed the handling of `undocumented` ends, and
+  it would also raise the event rate, since their clot rate is 5–12%.
+  **Proposal for the outcome stage:** stop scoring a circuit once its age
+  passes `outcomes.circuit_failure.scheduled_change_interval_hours`, and
+  censor it there. That rule can be applied in real time and avoids
+  predicting on rows that may belong to an undocumented second filter.
+- **Circuits slightly outside the ICU stay are kept.** 12 start before
+  `intime`, and fewer than 10 of those by more than an hour. That is
+  charting skew, not an implausible circuit.
+- **CRRT start, for the chronic dialysis flag, is the stay's first circuit
+  of at least 4 h.** Shorter circuits are mostly documentation artifacts. An
+  artifact before the real start must not hide a tunneled catheter charted
+  between the two.
+- **The flow cannot leak a small cell by subtraction.** `crrt.cohort`
+  refuses to write a flow in which an exclusion step changes circuits, stays
+  or patients by 1–9. A future step that small must be merged into a
+  neighbour or dropped.
+
+**Where it applies.** Plan Parts 4.1, 4.2, 4.6. `sql/crrt_cohort.sql`,
+`src/crrt/cohort.py`, `docs/strobe.md`, `run_all.sh` stage 3.
+
 ## 2026-10-02 — Chronic dialysis flag from pre-CRRT evidence only
 
 **Decision.** The chronic dialysis flag (Part 4.2) counts only evidence that
@@ -59,7 +112,8 @@ counts whenever it is charted in the stay. As a model feature, it is
 available only from its charttime.
 
 **Where it applies.** Plan Part 4.2. `config/config.yaml →
-cohort.chronic_dialysis`; the cohort stage (`run_all.sh` stage 1b) reads it.
+cohort.chronic_dialysis`, read by `sql/crrt_cohort.sql` (`run_all.sh`
+stage 3).
 
 ## 2026-10-02 — Itemid review
 

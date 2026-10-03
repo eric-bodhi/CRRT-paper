@@ -154,7 +154,8 @@ cohort:                                     # Plan Part 4
   # same stay is not evidence: AKI patients often start on IHD.
   # Circuits >=4 h flagged: 1,742 primary (315 clotted), 2,449 sensitivity.
   chronic_dialysis:
-    admission_history_itemid: 225126          # "Dialysis patient", value 1
+    admission_history_itemid: 225126          # "Dialysis patient" checkbox
+    admission_history_value: 1                # checked
     last_dialysis_itemid: 225128              # "Last dialysis", a date
     tunneled_catheter_values:                 # Dialysis Catheter Type
       227124: Tunneled (PermaCath)
