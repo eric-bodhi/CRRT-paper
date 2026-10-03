@@ -2,6 +2,129 @@
 
 Every judgment call, with its date (plan Part 14). Newest first.
 
+## 2026-10-03 — Repletion sensitivity analysis
+
+**Decision.** `sql/hypophos_labels.sql` now has a switch for what a
+repletion order does to a row: a phosphate order, IV or oral, started in the
+window before any low draw. Primary: `censor`, as in the entry below.
+Two sensitivity analyses bound it from either side:
+
+- `ignore` labels the row from the draws alone. An event the order
+  prevented counts as a negative, so this is the lower bound.
+- `composite` counts the order as the event. Every repletion counts as an
+  averted low, so this is the upper bound. It stays a sensitivity analysis
+  for the reason the hypophosphatemia entry rejected it as the primary: it
+  would turn a clinician's decision into the label.
+
+Config: `outcomes.hypophosphatemia.repletion_handling_primary` (`censor`)
+and `repletion_handling_sensitivity` (`[ignore, composite]`).
+
+**Why build it now.** The censor is informative, and it is uneven across
+eras. It removes 6.9 / 8.7 / 8.9 / 9.0 / 16.4% of scored rows across the
+five `anchor_year_group` eras, so it weighs most in the temporal test era
+(Part 9.2). `crrt.outcomes` now prints each censor reason's share of
+scored rows by era, so `run_all.sh` reproduces these numbers.
+
+**Result.** Scored rows, all eras:
+
+| Handling | Positive / labelled rows | Prevalence | Stays with a positive row | Prevalence by era (2008–10 … 2020–22) |
+|---|--:|--:|--:|---|
+| censor (primary) | 25,703 / 163,674 | 15.7% | 1,298 | 16.6 / 17.1 / 14.9 / 17.5 / **12.6** |
+| ignore | 28,345 / 183,119 | 15.5% | 1,302 | 16.5 / 16.7 / 15.0 / 17.5 / **12.2** |
+| composite | 45,372 / 183,343 | 24.7% | 1,580 | 22.6 / 24.7 / 23.0 / 25.5 / **27.8** |
+
+Composite labels 224 more rows than ignore. These are repleted rows that
+the other two handlings censor for death or for no draw.
+
+**Consequence.** Under the primary and ignore, the test era has the lowest
+prevalence. Under composite it has the highest. The 2020–22 era looks
+lower-risk partly because repletion there starts before the low draw.
+Calibration in the temporal test set must be read with that in mind.
+The test-era hypophosphatemia results are reported under all three
+handlings (confirmed by the authors 2026-10-03).
+
+**Where it applies.** Plan Parts 5.2, 9.2. `sql/hypophos_labels.sql`,
+`src/crrt/outcomes.py` (`summarize_by_era`), `config/config.yaml →
+outcomes.hypophosphatemia.repletion_handling_*`, feasibility §6
+proposal 11.
+
+## 2026-10-03 — Phosphate repletion is read from orders, oral and IV
+
+**Decision.** The repletion censor (`censor_reason = 'repletion'`) now reads
+one source for both routes: a `prescriptions` order for phosphate started in
+the label window before any low draw. It replaces the `inputevents` IV doses
+of the hypophosphatemia entry below, and adds oral repletion, which that
+entry had not counted. Plan Part 5.2 says to account for repletion "via
+`inputevents`"; this departs from that for the reason below. Config:
+`outcomes.hypophosphatemia.repletion_orders`, a list of routes for each drug.
+
+| Drug (`lower(drug)`) | Routes |
+|---|---|
+| neutra-phos, phosphorus (K-Phos Neutral tablets) | PO/NG, PO, NG |
+| sodium phosphate, potassium phosphate, sodium glycerophosphate | IV |
+
+**Why orders.** The censor has to mean the same thing in every era, because
+the temporal split (Part 9.2) tests on 2020–22. Neither administration
+record does:
+
+| Era | `emar` charts any medication during the circuit | IV phosphate during circuits: `inputevents` / `emar` / IV orders |
+|---|--:|---|
+| 2008–10 | 37% of circuits | 418 / 202 / 419 |
+| 2011–13 | 37% | 274 / 126 / 268 |
+| 2014–16 | 71% | 304 / 247 / 316 |
+| 2017–19 | 99% | 456 / 465 / 460 |
+| 2020–22 | 98% | **217** / 411 / 426 |
+
+`inputevents` loses about half of IV phosphate in 2020–22, and `emar` is
+incomplete before 2017. Orders are steady. Across all drugs, the order
+system's volume is 456–523 orders per 1,000 circuit-hours in every era.
+
+**The judgment calls.**
+
+- **Drug list.** Every drug name containing "phos" or "neutra" among cohort
+  patients was reviewed by hand. The others are phosphate salts of unrelated
+  drugs (codeine, dexamethasone, oseltamivir, cyclophosphamide, ...),
+  Caphosol (a mouth rinse) and Fleet Phospho-soda (a bowel prep, under 10
+  orders). Phosphate binders do not match the pattern and are not repletion.
+  Sodium glycerophosphate (IV, 52 patients) has no `inputevents` item at all.
+- **An IV order is one dose.** 4,346 of the 5,554 IV orders among cohort
+  patients are for one dose in 24 h. Where a dose in `inputevents` can be
+  matched to an order, the order starts a median of 60–62 min earlier in
+  every era. The quartiles are 15–23 min and 119–135 min. Censoring at the order is therefore slightly early, which is
+  the conservative direction. 23–37% of `inputevents` doses in each era have
+  no IV order starting in the 6 h before them. These are probably doses under
+  standing protocol orders, and they are not counted.
+- **Only new orders count.** Doses under an order that started before *t*
+  mean the patient is already on supplements at *t*. That is a feature, not
+  a decision made after the prediction.
+- `emar` stays the better record of what was actually given (dose times,
+  "Not Given"). It can serve as a check in 2017–22. It is not loaded into the
+  database.
+
+**Result (primary).** 19,669 rows in 880 circuits are censored for
+repletion, 10.1% of scored rows. That compares with 6,766 for `inputevents`
+IV only and 17,410 for `inputevents` IV plus oral orders. There are 25,703
+positive rows (15.7% of labelled rows; was 27,794, 15.8%). 1,298 of 2,781
+at-risk stays have an incident event.
+
+**Consequences.**
+
+- **The censor is informative.** Repletion is started for patients drifting
+  toward the threshold, and most of the rows it removes would have been
+  negatives. A sensitivity analysis that does not censor on repletion, or
+  treats it as part of a composite event, would bound the effect. It is not
+  built yet.
+- **It is heavier in the test era.** Repletion censors 6.9 / 8.7 / 8.9 /
+  9.0 / 16.4% of scored rows across the five eras. Oral orders account for
+  most of the rise: 4.1% → 10.1% from 2017–19 to 2020–22. IV goes from 5.3%
+  to 7.5%. Oral phosphate orders per circuit-hour rise by about 40% while
+  overall order volume is flat, so this is a change in practice, not in
+  recording. Name it as test-era drift next to Phoxillum and complete TMP
+  charting (feasibility §6 proposal 11).
+
+**Where it applies.** Plan Part 5.2. `sql/hypophos_labels.sql`,
+`config/config.yaml → outcomes.hypophosphatemia.repletion_orders`.
+
 ## 2026-10-03 — Hypophosphatemia prediction rows
 
 **Decision.** `sql/hypophos_labels.sql` labels the secondary outcome (Part

@@ -364,8 +364,10 @@ Each item names the Part it amends.
 10. **Part 10, subgroups.** Drop CRRT mode (96% of mode-charted stays are CVVHDF). Anticoagulation is
     feasible, but heparin-only is small (683 circuits, 367 patients).
 11. **Part 9.2, temporal split.** Keep train ≤2019 / test 2020–22, but name the
-    known drift in the test era: Phoxillum, COVID-era volume, and complete TMP
-    charting.
+    known drift in the test era: Phoxillum, COVID-era volume, complete TMP
+    charting, and more oral phosphate repletion. The repletion censor takes
+    16.4% of scored hypophosphatemia rows in 2020–22 against 7–9% before,
+    while overall order volume is flat (decisions.md 2026-10-03).
 12. **Part 4.2, ESRD.** Keep these patients, add a flag, and run a sensitivity
     analysis that excludes them. Excluding them up front costs 22% of circuits.
     The clotting question is not specific to AKI. This one is for the authors

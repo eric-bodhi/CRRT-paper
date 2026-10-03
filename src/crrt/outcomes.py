@@ -12,7 +12,8 @@ Both tables hold one row per included circuit per prediction time:
 This module binds each file's parameters from config/config.yaml and prints
 an aggregate summary. Only the primary analyses are built here. The
 sensitivity analyses (event classes, unclear handling, horizon, blanking,
-phosphate threshold) rebind the same SQL with their config values.
+phosphate threshold, repletion handling) rebind the same SQL with their
+config values.
 
 The summary prints aggregates only, with every count under
 `reporting.small_cell_threshold` suppressed (Part 1.4).
@@ -73,7 +74,10 @@ def bind_hypophos(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
         "max_age": timedelta(hours=h["known_value_max_age_hours"]),
         "threshold": float(h["moderate_mg_dl"]),
         "phosphate_itemid": h["phosphate_itemid"],
-        "repletion_itemids": h["repletion_itemids"],
+        "repletion_handling": h["repletion_handling_primary"],
+        "repletion_orders": [f"{drug}={route}"
+                             for drug, routes in h["repletion_orders"].items()
+                             for route in routes],
     })
 
 
@@ -120,6 +124,35 @@ def summarize(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any], table: str, t
     print()
 
 
+def summarize_by_era(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any], table: str) -> None:
+    """Scored rows and each censor reason's share of them, by anchor_year_group.
+
+    The temporal split tests on the latest era (Part 9.2), so a censor that
+    weighs differently there is test-era drift and has to be reported.
+    """
+    small = cfg["reporting"]["small_cell_threshold"]
+    rows = con.execute(
+        "SELECT p.anchor_year_group, l.censor_reason, count(*) "
+        f"FROM {table} AS l JOIN patients AS p USING (subject_id) "
+        "WHERE l.scored GROUP BY ALL ORDER BY 1, 2"
+    ).fetchall()
+    eras = sorted({era for era, _, _ in rows})
+    reasons = sorted({r for _, r, _ in rows if r is not None})
+    scored = {era: sum(k for e, _, k in rows if e == era) for era in eras}
+    by = {(era, r): k for era, r, k in rows}
+
+    print(f"{'censored, share of scored':28s} {'scored':>9s}"
+          + "".join(f" {r:>16s}" for r in reasons))
+    for era in eras:
+        cells = []
+        for r in reasons:
+            k = by.get((era, r), 0)
+            share = f" ({k / scored[era]:.1%})" if k >= small else ""
+            cells.append(f" {count(k, small) + share:>16s}")
+        print(f"{era:28s} {count(scored[era], small):>9s}" + "".join(cells))
+    print()
+
+
 def main() -> None:
     cfg = config.load()
     con = duckdb.connect(str(config.path(cfg, "duckdb")))
@@ -135,6 +168,7 @@ def main() -> None:
     summarize(con, cfg, "hypophos_labels",
               f"hypophosphatemia, horizon {hp['horizon_hours']} h "
               f"(primary: phosphate < {hp['moderate_mg_dl']} mg/dL)")
+    summarize_by_era(con, cfg, "hypophos_labels")
     con.close()
 
 

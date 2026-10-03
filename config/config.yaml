@@ -315,10 +315,36 @@ outcomes:
     # available (storetime <= t) and was drawn no longer ago than this.
     # Same 24 h window as the feasibility baseline.
     known_value_max_age_hours: 24
-    # inputevents IV phosphate repletion, the competing intervention of
-    # Part 5.2 (itemid_review.yaml: K Phos, Na Phos). A dose started in
-    # the window before any low value censors the row.
-    repletion_itemids: [225834, 225835]
+    # Phosphate repletion, the competing intervention of Part 5.2: a
+    # hosp.prescriptions order whose lower(drug) is a key below and whose
+    # route is listed for it. An order started in the label window before
+    # any low draw censors the row. Orders, not administrations, for both
+    # routes (decisions.md 2026-10-03, "Phosphate repletion is read from
+    # orders"): emar charts medication in 37% of circuits before 2014 and
+    # 98-99% from 2017, and inputevents (225834 K Phos, 225835 Na Phos)
+    # loses about half of IV phosphate in 2020-22. Order starts during
+    # circuits are steady in every era.
+    # Reviewed by hand 2026-10-03 from every drug name containing "phos" or
+    # "neutra" among cohort patients. Left out: phosphate salts of other
+    # drugs (codeine, dexamethasone, oseltamivir, cyclophosphamide, ...),
+    # Caphosol (a mouth rinse) and Fleet Phospho-soda (a bowel prep, under
+    # 10 orders).
+    repletion_orders:
+      neutra-phos: [PO/NG, PO, NG]
+      phosphorus: [PO/NG, PO, NG]            # K-Phos Neutral tablets
+      sodium phosphate: [IV]
+      potassium phosphate: [IV]
+      sodium glycerophosphate: [IV]          # not in inputevents at all
+    # What a repletion order in the window does to the row's label. Primary:
+    # censor (Part 5.2, a competing intervention). The censor is
+    # informative, since most rows it removes would have been negatives, and
+    # it is heavier in the 2020-22 test era (16.4% of scored rows vs 7-9%),
+    # so the sensitivity analyses bound it from both sides: ignore labels
+    # the row from the draws alone (a prevented event is a negative), and
+    # composite counts the order as the event (decisions.md 2026-10-03,
+    # "Repletion sensitivity analysis").
+    repletion_handling_primary: censor
+    repletion_handling_sensitivity: [ignore, composite]
 
   citrate_accumulation:                     # Plan Part 3 table
     total_to_ionized_calcium_ratio: 2.5
