@@ -2,6 +2,57 @@
 
 Every judgment call, with its date (plan Part 14). Newest first.
 
+## 2026-10-03 — Hypophosphatemia prediction rows
+
+**Decision.** `sql/hypophos_labels.sql` labels the secondary outcome (Part
+5.2) on the same hourly grid as circuit failure. This settles feasibility §6
+proposal 6. Values are in `config/config.yaml → outcomes.hypophosphatemia`.
+
+| Question | Primary | Sensitivity / other | Config key |
+|---|---|---|---|
+| Threshold | < 2.0 mg/dL | < 1.5; < 1.0 descriptive only | `moderate_mg_dl`, `sensitivity_mg_dl`, `severe_mg_dl` |
+| Horizon | 24 h | — | `horizon_hours` |
+| At risk | known result ≥ threshold, drawn ≤ 24 h before | — | `known_value_max_age_hours` |
+| IV repletion before the low draw | censored | — | `repletion_itemids` |
+| Death in the window | censored | — | — |
+| No draw in the window | censored | — | — |
+
+The other judgment calls:
+
+- **Rows are the circuit grid, without the circuit rules.** Warm-up,
+  blanking, the 72 h maximum age and downtime exist for the filter. Phosphate
+  is cleared by whichever filter is running, so none of them applies.
+  Blanking is not needed because the event is a blood draw, not something
+  the machine charts, and the result is known only at its `storetime`.
+- **The event is the first draw below threshold since the stay's CRRT
+  start**, timed at `charttime`. Once it has been drawn the row is no longer
+  at risk (`already_low`), even before the result is stored. Scoring such a
+  row would ask about an event that has already happened.
+- **At risk means known to be above threshold.** The latest result stored by
+  *t* and drawn in the previous 24 h must be ≥ 2.0. Without a known result,
+  "not already below threshold" (Part 5.2) cannot be checked.
+- **Repletion censors; it does not count as an event.** Part 5.2 calls it a
+  competing intervention. An IV dose started in the window before any low
+  draw may have prevented the event, so the row's outcome is not observed.
+  The alternative is a composite event (low draw or repletion). It was
+  rejected because it would turn a clinician's decision into the label.
+  Cost: 6,766 rows in 305 circuits. Oral phosphate is not counted yet.
+- **Phoxillum is a feature and a stratifier, not a censor.** A
+  phosphate-containing fluid runs for the whole circuit. Censoring on it
+  would remove most Phoxillum stays, all of them in 2020–22, the temporal
+  test era (Part 9.2). The feature stage carries it from 230083/230084.
+- **A window with no draw is censored, not negative.** The label exists only
+  when blood is drawn (feasibility §3). 760 rows.
+
+**Result (primary).** 364,036 rows; 195,343 scored. 27,794 positive rows
+(15.8% of labelled rows) in 1,541 circuits and 1,216 patients. 1,301 of 2,781
+at-risk stays have an incident event (46.8%), against 1,253 of 2,725 (46.0%)
+in feasibility §3. Censored: 11,402 rows by death, 6,766 by repletion, 760
+unmeasured. 166,518 rows are past the first low draw.
+
+**Where it applies.** Plan Parts 3.2, 5.2, 5.3. `sql/hypophos_labels.sql`,
+`src/crrt/outcomes.py`, `run_all.sh` stage 4.
+
 ## 2026-10-03 — Circuit-failure prediction rows
 
 **Decision.** `sql/circuit_failure_labels.sql` turns each included circuit

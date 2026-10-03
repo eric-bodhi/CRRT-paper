@@ -182,3 +182,47 @@ primary circuit-failure label (Parts 5.1, 5.3, 6.1–6.3). Built by
 | `scored` | boolean | `not_scored_reason` is null. |
 | `label` | boolean | Scored rows only. Follow-up stops at the censor time, `circuit_start + scheduled_change_interval_hours`. If `end_time` is in the window (*t*, *t* + `prediction.horizon_hours`] and by the censor time: true if the class is in `event_classes`, null if it is in `competing_risk_classes`, false otherwise. If not, false when the window ends by the censor time (the filter ran through it) and null when it runs past it. |
 | `censor_reason` | text | Why a scored row's `label` is null: `competing_risk` (death in the window) or `max_age` (the window runs past the censor time with the filter still up). |
+
+## `hypophos_labels`
+
+One row per included `crrt_cohort` circuit per prediction time, with the
+incident hypophosphatemia label (Parts 3.2, 5.2, 5.3). The grid is the same
+as `circuit_failure_labels`. Built by `sql/hypophos_labels.sql`, run from
+`uv run python -m crrt.outcomes` (stage 4 of `run_all.sh`). Decision:
+`docs/decisions.md` 2026-10-03, "Hypophosphatemia prediction rows". The
+model stages read `WHERE scored`.
+
+**Sources.**
+
+| Role | Table | itemid / column | Config key |
+|---|---|---|---|
+| Circuits | `crrt_circuits`, `crrt_cohort` | `included` circuits | — |
+| Phosphate | `labevents` | 50970 Phosphate, mg/dL (`valuenum`, `charttime`, `storetime`) | `outcomes.hypophosphatemia.phosphate_itemid` |
+| IV repletion | `inputevents` | 225834 K Phos, 225835 Na Phos (`starttime`) | `outcomes.hypophosphatemia.repletion_itemids` |
+| Death | `admissions` | `deathtime`, via the circuit's `hadm_id` | — |
+
+**Cleaning rules.**
+
+- Phosphate rows with null `valuenum` are ignored. No plausibility bound is
+  applied: in CRRT patients no value is ≤ 0 and the 0.1th percentile is
+  0.9 mg/dL. Every row is in mg/dL.
+- Phosphate and repletion are matched on `subject_id` and time, not on
+  `hadm_id` or `stay_id`.
+- A result is *known* at *t* when `storetime ≤ t` and `charttime ≤ t`. Three
+  rows have `storetime` before `charttime`.
+- Every repletion row counts, whatever its `statusdescription`: the dose was
+  started.
+- Oral phosphate (`prescriptions`, `emar`) is not counted.
+- `label` is null on every row that is not scored.
+
+| Column | Type / unit | Definition |
+|---|---|---|
+| `circuit_id`, `subject_id`, `stay_id` | integer | As in `crrt_circuits`. |
+| `pred_time` | timestamp | As in `circuit_failure_labels`. |
+| `known_value` | mg/dL | The latest-drawn phosphate known at `pred_time`, drawn within `known_value_max_age_hours`. |
+| `known_drawn_at` | timestamp | Its `charttime`. |
+| `first_low_at` | timestamp | The first phosphate below `moderate_mg_dl` drawn at or after the stay's CRRT start (its first included circuit). The event time. Never a feature. |
+| `not_scored_reason` | text | First rule failed, in order: `already_low` (`first_low_at ≤ pred_time`, whether or not the result is stored); `no_known_value`; `known_low` (`known_value < moderate_mg_dl`). Null if scored. |
+| `scored` | boolean | `not_scored_reason` is null. |
+| `label` | boolean | Scored rows only, over (*t*, *t* + `outcomes.hypophosphatemia.horizon_hours`]. Null if `censor_reason` is set. Otherwise true if `first_low_at` is in the window, false if not. |
+| `censor_reason` | text | Checked in order: `repletion` (an IV dose starts in the window before any low draw); `competing_risk` (no low draw in the window, and death in it); `unmeasured` (no phosphate drawn in the window). |

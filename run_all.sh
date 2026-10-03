@@ -34,8 +34,8 @@ uv run python -m crrt.circuits
 uv run python -m crrt.cohort
 
 # 4. Outcome labels (Parts 5, 6.1-6.3): one row per circuit per prediction
-#    time with its label -> table circuit_failure_labels. Prints aggregate
-#    counts only.
+#    time with its label -> tables circuit_failure_labels and hypophos_labels.
+#    Prints aggregate counts only.
 uv run python -m crrt.outcomes
 
 # Stages below are not implemented yet. Uncomment as each lands.

@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from crrt import config
-from crrt.outcomes import CIRCUIT_FAILURE_SQL, bind_circuit_failure, build
+from crrt.outcomes import CIRCUIT_FAILURE_SQL, bind_circuit_failure, build_circuit_failure
 
 duckdb = pytest.importorskip("duckdb")
 
@@ -73,7 +73,7 @@ class Circuits:
             con.execute("INSERT INTO crrt_cohort VALUES (?, ?)", [cid, included])
         if self.chart:
             con.executemany("INSERT INTO chartevents VALUES (?, ?, ?, ?, ?)", self.chart)
-        build(con, cfg)
+        build_circuit_failure(con, cfg)
         cur = con.execute("SELECT * FROM circuit_failure_labels ORDER BY circuit_id, pred_time")
         cols = [d[0] for d in cur.description]
         out: dict[int, list[dict]] = {}

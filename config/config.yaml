@@ -296,9 +296,29 @@ outcomes:
 
   hypophosphatemia:                         # Plan Part 5.2 — secondary outcome
     # Incident serum phosphate during CRRT, in a patient not already below
-    # threshold at prediction time.
+    # threshold at prediction time. Thresholds decided 2026-10-03
+    # (feasibility §6 proposal 6): moderate is the modelled outcome, the
+    # sensitivity threshold rebinds the same SQL, and severe is reported
+    # descriptively only (75 incident stays, under
+    # cohort.min_events_for_modeling).
     moderate_mg_dl: 2.0
+    sensitivity_mg_dl: 1.5
     severe_mg_dl: 1.0
+    # hosp.labevents Phosphate, mg/dL (one unit in every row). Not in the
+    # mimic-code chemistry concept, so it is read directly; the chartevents
+    # copy 225677 is excluded (itemid_review.yaml).
+    phosphate_itemid: 50970
+    # Part 3.2: "will this patient drop below 2.0 mg/dL in the next 24
+    # hours". Phosphate is drawn every 6.5 h (median, feasibility §3).
+    horizon_hours: 24
+    # A row is at risk only if a phosphate result at or above threshold is
+    # available (storetime <= t) and was drawn no longer ago than this.
+    # Same 24 h window as the feasibility baseline.
+    known_value_max_age_hours: 24
+    # inputevents IV phosphate repletion, the competing intervention of
+    # Part 5.2 (itemid_review.yaml: K Phos, Na Phos). A dose started in
+    # the window before any low value censors the row.
+    repletion_itemids: [225834, 225835]
 
   citrate_accumulation:                     # Plan Part 3 table
     total_to_ionized_calcium_ratio: 2.5

@@ -1,14 +1,18 @@
 """Build the outcome label tables (Parts 5, 6.1-6.3).
 
-`circuit_failure_labels` holds one row per included circuit per prediction
-time, with the primary label: did the filter clot in the next
-`prediction.horizon_hours`? The rules live in `sql/circuit_failure_labels.sql`;
-this module binds that file's parameters from config/config.yaml and prints
-an aggregate summary.
+Both tables hold one row per included circuit per prediction time:
 
-Only the primary analysis is built here. The sensitivity analyses (event
-classes, unclear handling, horizon, blanking) rebind the same SQL with their
-config values.
+- `circuit_failure_labels` (primary outcome): did the filter clot in the
+  next `prediction.horizon_hours`? Rules in `sql/circuit_failure_labels.sql`.
+- `hypophos_labels` (secondary outcome): is phosphate first drawn below
+  `outcomes.hypophosphatemia.moderate_mg_dl` in the next
+  `outcomes.hypophosphatemia.horizon_hours`? Rules in
+  `sql/hypophos_labels.sql`.
+
+This module binds each file's parameters from config/config.yaml and prints
+an aggregate summary. Only the primary analyses are built here. The
+sensitivity analyses (event classes, unclear handling, horizon, blanking,
+phosphate threshold) rebind the same SQL with their config values.
 
 The summary prints aggregates only, with every count under
 `reporting.small_cell_threshold` suppressed (Part 1.4).
@@ -25,6 +29,12 @@ from crrt import config
 from crrt.report import count
 
 CIRCUIT_FAILURE_SQL = config.REPO_ROOT / "sql" / "circuit_failure_labels.sql"
+HYPOPHOS_SQL = config.REPO_ROOT / "sql" / "hypophos_labels.sql"
+
+
+def _set(con: duckdb.DuckDBPyConnection, variables: dict[str, Any]) -> None:
+    for name, value in variables.items():
+        con.execute(f"SET VARIABLE {name} = ?", [value])
 
 
 def bind_circuit_failure(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
@@ -51,29 +61,45 @@ def bind_circuit_failure(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) ->
         before, after = c["windows_hours"][name]
         variables[f"{name}_before"] = timedelta(hours=before)
         variables[f"{name}_after"] = timedelta(hours=after)
-    for name, value in variables.items():
-        con.execute(f"SET VARIABLE {name} = ?", [value])
+    _set(con, variables)
 
 
-def build(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
+def bind_hypophos(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
+    """Set every DuckDB variable that sql/hypophos_labels.sql reads."""
+    h = cfg["outcomes"]["hypophosphatemia"]
+    _set(con, {
+        "step": timedelta(hours=cfg["prediction"]["step_hours"]),
+        "horizon": timedelta(hours=h["horizon_hours"]),
+        "max_age": timedelta(hours=h["known_value_max_age_hours"]),
+        "threshold": float(h["moderate_mg_dl"]),
+        "phosphate_itemid": h["phosphate_itemid"],
+        "repletion_itemids": h["repletion_itemids"],
+    })
+
+
+def build_circuit_failure(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
     bind_circuit_failure(con, cfg)
     con.execute(CIRCUIT_FAILURE_SQL.read_text())
 
 
-def summarize(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
+def build_hypophos(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
+    bind_hypophos(con, cfg)
+    con.execute(HYPOPHOS_SQL.read_text())
+
+
+def summarize(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any], table: str, title: str) -> None:
     small = cfg["reporting"]["small_cell_threshold"]
 
     def n(v: int) -> str:
         return count(v, small)
 
-    print(f"circuit failure, horizon {cfg['prediction']['horizon_hours']} h "
-          f"(primary: {', '.join(cfg['outcomes']['circuit_failure']['event_classes_primary'])})")
+    print(title)
     rows, circuits = con.execute(
-        "SELECT count(*), count(DISTINCT circuit_id) FROM circuit_failure_labels"
+        f"SELECT count(*), count(DISTINCT circuit_id) FROM {table}"
     ).fetchone()
     print(f"prediction rows: {n(rows)} over {n(circuits)} circuits")
     for reason, k in con.execute(
-        "SELECT not_scored_reason, count(*) FROM circuit_failure_labels "
+        f"SELECT not_scored_reason, count(*) FROM {table} "
         "WHERE NOT scored GROUP BY 1 ORDER BY 2 DESC"
     ).fetchall():
         print(f"  not scored, {reason:20s} {n(k):>9s}")
@@ -83,21 +109,32 @@ def summarize(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
         "SELECT CASE WHEN label THEN 'event in horizon' WHEN NOT label THEN 'no event' "
         "            ELSE 'censored: ' || censor_reason END, "
         "       count(*), count(DISTINCT circuit_id), count(DISTINCT subject_id) "
-        "FROM circuit_failure_labels WHERE scored GROUP BY 1 ORDER BY 2 DESC"
+        f"FROM {table} WHERE scored GROUP BY 1 ORDER BY 2 DESC"
     ).fetchall():
         print(f"{label:28s} {n(k):>9s} {n(circ):>9s} {n(pts):>9s}")
     pos, labelled = con.execute(
-        "SELECT count(*) FILTER (WHERE label), count(label) FROM circuit_failure_labels"
+        f"SELECT count(*) FILTER (WHERE label), count(label) FROM {table}"
     ).fetchone()
     if pos >= small:
         print(f"prevalence among labelled rows: {pos / labelled:.1%}")
+    print()
 
 
 def main() -> None:
     cfg = config.load()
     con = duckdb.connect(str(config.path(cfg, "duckdb")))
-    build(con, cfg)
-    summarize(con, cfg)
+    cf = cfg["outcomes"]["circuit_failure"]
+    hp = cfg["outcomes"]["hypophosphatemia"]
+
+    build_circuit_failure(con, cfg)
+    summarize(con, cfg, "circuit_failure_labels",
+              f"circuit failure, horizon {cfg['prediction']['horizon_hours']} h "
+              f"(primary: {', '.join(cf['event_classes_primary'])})")
+
+    build_hypophos(con, cfg)
+    summarize(con, cfg, "hypophos_labels",
+              f"hypophosphatemia, horizon {hp['horizon_hours']} h "
+              f"(primary: phosphate < {hp['moderate_mg_dl']} mg/dL)")
     con.close()
 
 
