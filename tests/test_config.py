@@ -11,6 +11,7 @@ import pytest
 import yaml
 
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "config.yaml"
+ITEMID_REVIEW_PATH = CONFIG_PATH.with_name("itemid_review.yaml")
 
 # Dotted paths every downstream stage depends on. Adding a threshold to the
 # config does not require touching this list; removing or renaming one does.
@@ -59,6 +60,9 @@ REQUIRED_KEYS = [
     "outcomes.citrate_accumulation.total_to_ionized_calcium_ratio",
     "features.window_hours",
     "features.min_points_for_trend",
+    "features.plausibility_bounds",
+    "features.pressure_clip_margin_mmhg",
+    "features.pressure_clip_itemids",
     "evaluation.alert_budget_alerts",
     "evaluation.alert_budget_hours",
     "paths.mimic_dir",
@@ -99,3 +103,19 @@ def test_warmup_and_blanking_fit_inside_the_horizon(config):
     prediction = config["prediction"]
     assert prediction["warmup_hours"] > 0
     assert 0 < prediction["blanking_minutes"] < prediction["horizon_hours"] * 60
+
+
+def test_plausibility_bounds_are_ordered_and_reviewed(config):
+    """Each bound is [low, high] with low < high, on an itemid the hand
+    review included (Part 2.3): a bound on an unreviewed item is a bound on
+    a variable no feature may read."""
+    reviewed = yaml.safe_load(ITEMID_REVIEW_PATH.read_text())["items"]
+    for itemid, (low, high) in config["features"]["plausibility_bounds"].items():
+        assert low < high, itemid
+        assert reviewed[itemid]["verdict"] == "include", itemid
+
+
+def test_clipped_pressures_are_bounded(config):
+    features = config["features"]
+    assert set(features["pressure_clip_itemids"]) <= set(features["plausibility_bounds"])
+    assert features["pressure_clip_margin_mmhg"] > 0

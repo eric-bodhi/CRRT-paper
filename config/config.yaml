@@ -362,11 +362,49 @@ features:                                   # Plan Part 7
 
   # Plan 7 requires physiologic plausibility bounds, unit harmonization and
   # duplicate resolution to live here rather than scattered through notebooks.
-  # Deliberately empty: the plan does not supply bound values, and Part 2.3
-  # says derive and manually eyeball every itemid (label, unit, row count,
-  # value distribution) before trusting any range. Populate per variable as
-  # itemids are validated, and mirror each entry in docs/data_dictionary.md.
-  plausibility_bounds: {}
+  # Populate per variable as itemids are validated (Part 2.3), and mirror
+  # each entry in docs/data_dictionary.md.
+  #
+  # itemid: [low, high], inclusive, in the item's charted unit. A value
+  # outside is set to missing, never clipped, except the raw circuit
+  # pressures below. Decided 2026-10-03 (docs/decisions.md, "Plausibility
+  # bounds for the CRRT machine items"), where every bound has its evidence.
+  # "device" = the operating or settable range in the Prismaflex Service
+  # Manual (G5005209, software 7.xx, §8), identical on the PrisMax spec
+  # sheet. The other sources are named per line.
+  plausibility_bounds:
+    224144: [10, 450]       # Blood Flow, ml/min. Device.
+    224149: [-250, 450]     # Access Pressure, mmHg. Device.
+    224150: [-50, 450]      # Filter Pressure, mmHg. Device.
+    224151: [-350, 400]     # Effluent Pressure, mmHg. Device.
+    224152: [-50, 350]      # Return Pressure, mmHg. Device.
+    # TMP = (filter + return)/2 - effluent and pressure drop = filter -
+    # return (the manual's formulas), at the extremes of the sensor ranges.
+    229247: [-450, 750]     # Trans Membrane Pressure, mmHg.
+    229248: [-400, 500]     # Pressure Drop, mmHg.
+    224153: [0, 8000]       # Replacement Rate, ml/hr. Device.
+    228006: [0, 8000]       # Post Filter Replacement Rate, ml/hr. Device (replacement).
+    228005: [0, 4000]       # PBP (Prefilter) Replacement Rate, ml/hr. Device.
+    224154: [0, 8000]       # Dialysate Rate, ml/hr. Device.
+    224191: [0, 2000]       # Hourly Patient Fluid Removal, mL. Device.
+    # Achieved net removal per hour, so the fluid-removal setting's range.
+    226457: [0, 2000]       # Ultrafiltrate Output, mL.
+    # A net-balance goal per hour; may be positive, as other inputs count.
+    225183: [-2000, 2000]   # Current Goal, mL.
+    # Not on the machine (ACD-A runs on an external pump). Bounded at the
+    # empty gap in the data: no row in (350, 450] ml/hr.
+    228004: [0, 350]        # Citrate (ACD-A), ml/hr.
+    # Not on the machine in these units. The tail is continuous to 4,000
+    # units/hr and sparse beyond it, half of that above 10,000.
+    224145: [0, 4000]       # Heparin Dose (per hour), units.
+
+  # Raw circuit pressures only: a value past a bound by at most this much is
+  # the sensor at its limit, charted as a round number (filter pressure 500
+  # against 450). It is set to the bound, not missing. These values are 11
+  # times as common in the last 3 h of clotted circuits as elsewhere, so
+  # dropping them would remove clotting signal just before the event.
+  pressure_clip_margin_mmhg: 50
+  pressure_clip_itemids: [224149, 224150, 224151, 224152]
 
 
 reporting:                                  # Plan Part 1.4
