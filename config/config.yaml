@@ -335,6 +335,16 @@ outcomes:
       sodium phosphate: [IV]
       potassium phosphate: [IV]
       sodium glycerophosphate: [IV]          # not in inputevents at all
+    # What a repletion order in the window does to the row's label. Primary:
+    # censor (Part 5.2, a competing intervention). The censor is
+    # informative, since most rows it removes would have been negatives, and
+    # it is heavier in the 2020-22 test era (16.4% of scored rows vs 7-9%),
+    # so the sensitivity analyses bound it from both sides: ignore labels
+    # the row from the draws alone (a prevented event is a negative), and
+    # composite counts the order as the event (decisions.md 2026-10-03,
+    # "Repletion sensitivity analysis").
+    repletion_handling_primary: censor
+    repletion_handling_sensitivity: [ignore, composite]
 
   citrate_accumulation:                     # Plan Part 3 table
     total_to_ionized_calcium_ratio: 2.5

@@ -2,6 +2,52 @@
 
 Every judgment call, with its date (plan Part 14). Newest first.
 
+## 2026-10-03 — Repletion sensitivity analysis
+
+**Decision.** `sql/hypophos_labels.sql` now has a switch for what a
+repletion order does to a row: a phosphate order, IV or oral, started in the
+window before any low draw. Primary: `censor`, as in the entry below.
+Two sensitivity analyses bound it from either side:
+
+- `ignore` labels the row from the draws alone. An event the order
+  prevented counts as a negative, so this is the lower bound.
+- `composite` counts the order as the event. Every repletion counts as an
+  averted low, so this is the upper bound. It stays a sensitivity analysis
+  for the reason the hypophosphatemia entry rejected it as the primary: it
+  would turn a clinician's decision into the label.
+
+Config: `outcomes.hypophosphatemia.repletion_handling_primary` (`censor`)
+and `repletion_handling_sensitivity` (`[ignore, composite]`).
+
+**Why build it now.** The censor is informative, and it is uneven across
+eras. It removes 6.9 / 8.7 / 8.9 / 9.0 / 16.4% of scored rows across the
+five `anchor_year_group` eras, so it weighs most in the temporal test era
+(Part 9.2). `crrt.outcomes` now prints each censor reason's share of
+scored rows by era, so `run_all.sh` reproduces these numbers.
+
+**Result.** Scored rows, all eras:
+
+| Handling | Positive / labelled rows | Prevalence | Stays with a positive row | Prevalence by era (2008–10 … 2020–22) |
+|---|--:|--:|--:|---|
+| censor (primary) | 25,703 / 163,674 | 15.7% | 1,298 | 16.6 / 17.1 / 14.9 / 17.5 / **12.6** |
+| ignore | 28,345 / 183,119 | 15.5% | 1,302 | 16.5 / 16.7 / 15.0 / 17.5 / **12.2** |
+| composite | 45,372 / 183,343 | 24.7% | 1,580 | 22.6 / 24.7 / 23.0 / 25.5 / **27.8** |
+
+Composite labels 224 more rows than ignore. These are repleted rows that
+the other two handlings censor for death or for no draw.
+
+**Consequence.** Under the primary and ignore, the test era has the lowest
+prevalence. Under composite it has the highest. The 2020–22 era looks
+lower-risk partly because repletion there starts before the low draw.
+Calibration in the temporal test set must be read with that in mind.
+The test-era hypophosphatemia results are reported under all three
+handlings (confirmed by the authors 2026-10-03).
+
+**Where it applies.** Plan Parts 5.2, 9.2. `sql/hypophos_labels.sql`,
+`src/crrt/outcomes.py` (`summarize_by_era`), `config/config.yaml →
+outcomes.hypophosphatemia.repletion_handling_*`, feasibility §6
+proposal 11.
+
 ## 2026-10-03 — Phosphate repletion is read from orders, oral and IV
 
 **Decision.** The repletion censor (`censor_reason = 'repletion'`) now reads

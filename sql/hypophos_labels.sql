@@ -23,13 +23,19 @@
 --   3. known_low: the latest known result is below threshold (drawn before
 --      CRRT start, or the row would be already_low).
 --
+-- A row is repleted when a phosphate order, IV or oral, starts in the
+-- window before any low value. It is a competing intervention (Part 5.2)
+-- that can prevent the event. Doses under an order that started before t
+-- are not new: the patient is already on supplements at t, which is a
+-- feature. `repletion_handling` decides what a repleted row becomes:
+-- 'censor' (primary) as below; 'ignore' labels it from the draws alone;
+-- 'composite' makes it true, the order counting as the event.
+--
 -- Label, for scored rows, over the window (t, t + horizon]:
---   NULL   repletion: a phosphate order, IV or oral, starts in the window
---          before any low value. It is a competing intervention (Part 5.2)
---          that can prevent the event. Doses under an order that started
---          before t are not new: the patient is already on supplements at
---          t, which is a feature.
---   true   the event is drawn in the window.
+--   NULL   repletion: the row is repleted and `repletion_handling` is
+--          'censor'.
+--   true   the event is drawn in the window, or the row is repleted and
+--          `repletion_handling` is 'composite'.
 --   NULL   competing_risk: the patient dies in the window (Part 5.3).
 --   NULL   unmeasured: no phosphate is drawn in the window, so its absence
 --          is not evidence of a normal value.
@@ -130,18 +136,26 @@ flagged AS (
     LEFT JOIN admissions AS adm ON adm.hadm_id = a.hadm_id
 ),
 
+with_repletion AS (
+    SELECT
+        *,
+        coalesce(next_repletion_at <= window_end
+                 AND (first_low_at IS NULL OR next_repletion_at < first_low_at), false) AS repleted
+    FROM flagged
+),
+
 censoring AS (
     SELECT
         *,
         CASE
             WHEN not_scored_reason IS NOT NULL THEN NULL
-            WHEN next_repletion_at <= window_end
-             AND (first_low_at IS NULL OR next_repletion_at < first_low_at) THEN 'repletion'
+            WHEN repleted AND getvariable('repletion_handling') = 'censor' THEN 'repletion'
             WHEN first_low_at <= window_end THEN NULL
+            WHEN repleted AND getvariable('repletion_handling') = 'composite' THEN NULL
             WHEN deathtime > pred_time AND deathtime <= window_end THEN 'competing_risk'
             WHEN next_drawn_at IS NULL OR next_drawn_at > window_end THEN 'unmeasured'
         END AS censor_reason
-    FROM flagged
+    FROM with_repletion
 )
 
 SELECT
@@ -152,6 +166,7 @@ SELECT
     CASE
         WHEN not_scored_reason IS NOT NULL OR censor_reason IS NOT NULL THEN NULL
         ELSE coalesce(first_low_at <= window_end, false)
+             OR (repleted AND getvariable('repletion_handling') = 'composite')
     END AS label,
     censor_reason
 FROM censoring

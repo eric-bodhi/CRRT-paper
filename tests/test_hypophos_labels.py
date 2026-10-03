@@ -72,7 +72,7 @@ class Patient:
         self.death_h = h
         return self
 
-    def run(self) -> dict[float, dict]:
+    def run(self, cfg: dict = CFG) -> dict[float, dict]:
         con = duckdb.connect()
         con.execute("CREATE TABLE crrt_circuits (circuit_id INTEGER, subject_id INTEGER, "
                     "hadm_id INTEGER, stay_id INTEGER, circuit_start TIMESTAMP, "
@@ -91,7 +91,7 @@ class Patient:
             con.execute("INSERT INTO labevents VALUES (1, ?, ?, ?, ?)", [PHOS, charttime, storetime, v])
         for drug, route, start in self.orders:
             con.execute("INSERT INTO prescriptions VALUES (1, ?, ?, ?)", [drug, route, start])
-        build_hypophos(con, CFG)
+        build_hypophos(con, cfg)
         cur = con.execute("SELECT * FROM hypophos_labels ORDER BY pred_time")
         cols = [d[0] for d in cur.description]
         return {(r["pred_time"] - ORIGIN).total_seconds() / 3600: r
@@ -225,3 +225,42 @@ def test_oral_order_started_before_t_does_not_censor():
 def test_other_phosphate_named_orders_do_not_censor(drug, route):
     rows = low_at_20().order(15, drug, route).run()
     assert rows[10]["label"] is True
+
+
+# ── Repletion handling (sensitivity analyses) ─────────────────────────────
+
+
+def with_repletion_handling(handling: str) -> dict:
+    return {**CFG, "outcomes": {**CFG["outcomes"], "hypophosphatemia": {
+        **HP, "repletion_handling_primary": handling}}}
+
+
+def test_repletion_handling_bounds_the_censor():
+    """A dose at 15 h with only normal draws after it: a prevented event,
+    or no event at all. Censor drops the row, ignore calls it negative,
+    composite calls it the event. Row 16 has no new order in its window and
+    is negative under every handling."""
+    def patient() -> Patient:
+        return Patient().every(-1, 60, 6).dose(15)
+
+    handlings = {"censor": (None, "repletion"), "ignore": (False, None), "composite": (True, None)}
+    assert set(handlings) == {HP["repletion_handling_primary"], *HP["repletion_handling_sensitivity"]}
+    for handling, (label, reason) in handlings.items():
+        rows = patient().run(with_repletion_handling(handling))
+        assert (rows[10]["label"], rows[10]["censor_reason"]) == (label, reason), handling
+        assert (rows[16]["label"], rows[16]["censor_reason"]) == (False, None), handling
+
+
+@pytest.mark.parametrize("handling", ["ignore", "composite"])
+def test_repletion_before_the_low_draw_is_positive_unless_censored(handling):
+    rows = low_at_20().order(15).run(with_repletion_handling(handling))
+    assert rows[10]["label"] is True and rows[10]["censor_reason"] is None
+
+
+@pytest.mark.parametrize("handling", ["ignore", "composite"])
+def test_repletion_handling_leaves_rows_without_repletion_alone(handling):
+    rows = Patient().phos(-1, NORMAL).every(5, 17, 6).phos(18, LOW).dose(19).run(
+        with_repletion_handling(handling))
+    assert rows[10]["label"] is True
+    rows = Patient().every(-1, 60, 6).run(with_repletion_handling(handling))
+    assert rows[1]["label"] is False and rows[1]["censor_reason"] is None
