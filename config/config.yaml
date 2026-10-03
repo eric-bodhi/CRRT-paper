@@ -315,22 +315,26 @@ outcomes:
     # available (storetime <= t) and was drawn no longer ago than this.
     # Same 24 h window as the feasibility baseline.
     known_value_max_age_hours: 24
-    # inputevents IV phosphate repletion, the competing intervention of
-    # Part 5.2 (itemid_review.yaml: K Phos, Na Phos). A dose started in
-    # the window before any low value censors the row.
-    repletion_itemids: [225834, 225835]
-    # Oral phosphate repletion: a hosp.prescriptions order whose lower(drug)
-    # and route are both listed, censoring the row like an IV dose when its
-    # starttime is in the window. Reviewed by hand 2026-10-03 from every
-    # drug name containing "phos" or "neutra" among cohort patients:
-    # Neutra-Phos and Phosphorus (K-Phos Neutral tablets) are the only oral
-    # supplements. Left out: phosphate salts of other drugs (codeine,
-    # dexamethasone, oseltamivir, ...), Caphosol (a mouth rinse) and Fleet
-    # Phospho-soda (a bowel prep, under 10 orders). Prescriptions, not emar:
-    # emar covers 37% of circuits before 2014 and 98-99% from 2017, which
-    # would make the censor differ by era (decisions.md 2026-10-03).
-    oral_repletion_drugs: [neutra-phos, phosphorus]
-    oral_repletion_routes: [PO/NG, PO, NG]
+    # Phosphate repletion, the competing intervention of Part 5.2: a
+    # hosp.prescriptions order whose lower(drug) is a key below and whose
+    # route is listed for it. An order started in the label window before
+    # any low draw censors the row. Orders, not administrations, for both
+    # routes (decisions.md 2026-10-03, "Phosphate repletion is read from
+    # orders"): emar charts medication in 37% of circuits before 2014 and
+    # 98-99% from 2017, and inputevents (225834 K Phos, 225835 Na Phos)
+    # loses about half of IV phosphate in 2020-22. Order starts during
+    # circuits are steady in every era.
+    # Reviewed by hand 2026-10-03 from every drug name containing "phos" or
+    # "neutra" among cohort patients. Left out: phosphate salts of other
+    # drugs (codeine, dexamethasone, oseltamivir, cyclophosphamide, ...),
+    # Caphosol (a mouth rinse) and Fleet Phospho-soda (a bowel prep, under
+    # 10 orders).
+    repletion_orders:
+      neutra-phos: [PO/NG, PO, NG]
+      phosphorus: [PO/NG, PO, NG]            # K-Phos Neutral tablets
+      sodium phosphate: [IV]
+      potassium phosphate: [IV]
+      sodium glycerophosphate: [IV]          # not in inputevents at all
 
   citrate_accumulation:                     # Plan Part 3 table
     total_to_ionized_calcium_ratio: 2.5

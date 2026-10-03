@@ -73,9 +73,9 @@ def bind_hypophos(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
         "max_age": timedelta(hours=h["known_value_max_age_hours"]),
         "threshold": float(h["moderate_mg_dl"]),
         "phosphate_itemid": h["phosphate_itemid"],
-        "repletion_itemids": h["repletion_itemids"],
-        "oral_repletion_drugs": h["oral_repletion_drugs"],
-        "oral_repletion_routes": h["oral_repletion_routes"],
+        "repletion_orders": [f"{drug}={route}"
+                             for drug, routes in h["repletion_orders"].items()
+                             for route in routes],
     })
 
 

@@ -24,9 +24,10 @@ THRESHOLD = HP["moderate_mg_dl"]
 H = HP["horizon_hours"]
 MAX_AGE = HP["known_value_max_age_hours"]
 PHOS = HP["phosphate_itemid"]
-REPLETION = HP["repletion_itemids"][0]
-ORAL_DRUG = HP["oral_repletion_drugs"][0]
-ORAL_ROUTE = HP["oral_repletion_routes"][0]
+ORDERS = HP["repletion_orders"]
+IV_DRUG = next(d for d, routes in ORDERS.items() if "IV" in routes)
+ORAL_DRUG = next(d for d, routes in ORDERS.items() if "IV" not in routes)
+ORAL_ROUTE = ORDERS[ORAL_DRUG][0]
 NORMAL = THRESHOLD + 1
 LOW = THRESHOLD - 0.5
 # Results are stored this long after the draw (feasibility §3: 76 min median).
@@ -43,7 +44,6 @@ class Patient:
     def __init__(self, end_h: float = 60):
         self.end_h = end_h
         self.labs: list[tuple] = []
-        self.doses: list[float] = []
         self.orders: list[tuple] = []
         self.death_h: float | None = None
         self.included = True
@@ -60,8 +60,8 @@ class Patient:
         return self
 
     def dose(self, h: float):
-        self.doses.append(h)
-        return self
+        """An IV phosphate order starting at hour h."""
+        return self.order(h, IV_DRUG, "IV")
 
     def order(self, h: float, drug: str = ORAL_DRUG, route: str = ORAL_ROUTE):
         """A prescription starting at hour h. MIMIC capitalises drug names."""
@@ -80,8 +80,6 @@ class Patient:
         con.execute("CREATE TABLE crrt_cohort (circuit_id INTEGER, included BOOLEAN)")
         con.execute("CREATE TABLE labevents (subject_id INTEGER, itemid INTEGER, "
                     "charttime TIMESTAMP, storetime TIMESTAMP, valuenum DOUBLE)")
-        con.execute("CREATE TABLE inputevents (subject_id INTEGER, itemid INTEGER, "
-                    "starttime TIMESTAMP)")
         con.execute("CREATE TABLE prescriptions (subject_id INTEGER, drug VARCHAR, "
                     "route VARCHAR, starttime TIMESTAMP)")
         con.execute("CREATE TABLE admissions (hadm_id INTEGER, deathtime TIMESTAMP)")
@@ -91,8 +89,6 @@ class Patient:
                     [at(self.death_h) if self.death_h is not None else None])
         for charttime, storetime, v in self.labs:
             con.execute("INSERT INTO labevents VALUES (1, ?, ?, ?, ?)", [PHOS, charttime, storetime, v])
-        for h in self.doses:
-            con.execute("INSERT INTO inputevents VALUES (1, ?, ?)", [REPLETION, at(h)])
         for drug, route, start in self.orders:
             con.execute("INSERT INTO prescriptions VALUES (1, ?, ?, ?)", [drug, route, start])
         build_hypophos(con, CFG)
@@ -223,7 +219,8 @@ def test_oral_order_started_before_t_does_not_censor():
 @pytest.mark.parametrize("drug, route", [
     ("caphosol", ORAL_ROUTE),               # mouth rinse
     ("codeine phosphate", ORAL_ROUTE),      # phosphate salt of another drug
-    (ORAL_DRUG, "IV"),                      # not an oral route
+    (ORAL_DRUG, "IV"),                      # not one of its routes
+    (IV_DRUG, ORAL_ROUTE),                  # not one of its routes
 ])
 def test_other_phosphate_named_orders_do_not_censor(drug, route):
     rows = low_at_20().order(15, drug, route).run()

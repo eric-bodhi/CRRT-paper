@@ -198,8 +198,7 @@ model stages read `WHERE scored`.
 |---|---|---|---|
 | Circuits | `crrt_circuits`, `crrt_cohort` | `included` circuits | — |
 | Phosphate | `labevents` | 50970 Phosphate, mg/dL (`valuenum`, `charttime`, `storetime`) | `outcomes.hypophosphatemia.phosphate_itemid` |
-| IV repletion | `inputevents` | 225834 K Phos, 225835 Na Phos (`starttime`) | `outcomes.hypophosphatemia.repletion_itemids` |
-| Oral repletion | `prescriptions` | `drug` Neutra-Phos, Phosphorus; `route` PO/NG, PO, NG (`starttime`) | `outcomes.hypophosphatemia.oral_repletion_drugs`, `oral_repletion_routes` |
+| Repletion orders | `prescriptions` | `drug` Neutra-Phos, Phosphorus by PO/NG, PO, NG; Sodium / Potassium Phosphate, Sodium Glycerophosphate by IV (`starttime`) | `outcomes.hypophosphatemia.repletion_orders` |
 | Death | `admissions` | `deathtime`, via the circuit's `hadm_id` | — |
 
 **Cleaning rules.**
@@ -211,12 +210,11 @@ model stages read `WHERE scored`.
   `hadm_id` or `stay_id`.
 - A result is *known* at *t* when `storetime ≤ t` and `charttime ≤ t`. Three
   rows have `storetime` before `charttime`.
-- Every IV repletion row counts, whatever its `statusdescription`: the dose
-  was started.
-- Oral repletion is a new order: a `prescriptions` row whose `lower(drug)` is
-  in `oral_repletion_drugs` and whose `route` is in `oral_repletion_routes`,
-  timed at `starttime`. Doses given under an order that started earlier are
-  not counted. `emar` is not used, because its coverage changes by era.
+- Repletion is a new order, IV or oral: a `prescriptions` row whose
+  `lower(drug)` is a key of `repletion_orders` and whose `route` is listed
+  for it, timed at `starttime`. Doses given under an order that started
+  earlier are not counted. `inputevents` and `emar` are not used, because
+  their coverage changes by era.
 - `label` is null on every row that is not scored.
 
 | Column | Type / unit | Definition |
@@ -229,4 +227,4 @@ model stages read `WHERE scored`.
 | `not_scored_reason` | text | First rule failed, in order: `already_low` (`first_low_at ≤ pred_time`, whether or not the result is stored); `no_known_value`; `known_low` (`known_value < moderate_mg_dl`). Null if scored. |
 | `scored` | boolean | `not_scored_reason` is null. |
 | `label` | boolean | Scored rows only, over (*t*, *t* + `outcomes.hypophosphatemia.horizon_hours`]. Null if `censor_reason` is set. Otherwise true if `first_low_at` is in the window, false if not. |
-| `censor_reason` | text | Checked in order: `repletion` (an IV dose or a new oral order starts in the window before any low draw); `competing_risk` (no low draw in the window, and death in it); `unmeasured` (no phosphate drawn in the window). |
+| `censor_reason` | text | Checked in order: `repletion` (a phosphate order, IV or oral, starts in the window before any low draw); `competing_risk` (no low draw in the window, and death in it); `unmeasured` (no phosphate drawn in the window). |
