@@ -62,7 +62,7 @@ items:
   # --------------------------------------------------------------------------
   # chartevents — admission history
   # --------------------------------------------------------------------------
-  225126: {verdict: include, roles: [cohort], reason: "Admission-history checkbox, charted before CRRT, so usable for the chronic dialysis flag without leakage. Charted in only 1,043 of 2,798 stays with a circuit (37%); where both exist it agrees only partly with ICD (see decisions.md on the ESRD flag)."}
+  225126: {verdict: include, roles: [cohort], reason: "Admission-history checkbox recording pre-admission status; a source of the chronic dialysis flag (cohort.chronic_dialysis). Charted in only 1,043 of 2,798 stays with a circuit (37%); where both exist it agrees only partly with ICD (decisions.md, chronic dialysis flag)."}
 
   # --------------------------------------------------------------------------
   # chartevents — Dialysis: the CRRT machine
@@ -99,7 +99,7 @@ items:
   224139: {verdict: exclude, reason: "No rows."}
   225954: {verdict: exclude, reason: "18 rows in under 10 stays."}
   227438: {verdict: exclude, reason: "No rows."}
-  226499: {verdict: include, roles: [cohort], reason: "Hemodialysis (intermittent) output, mL, p50 2000. Charted in 863 stays with a circuit. With 225441, identifies intermittent HD before CRRT (prior RRT, Part 4.2)."}
+  226499: {verdict: include, roles: [cohort], reason: "Hemodialysis (intermittent) output, mL, p50 2000. Charted in 863 stays with a circuit. With 225441, describes IHD next to CRRT. Not evidence of chronic dialysis (see 225441)."}
   # Peritoneal dialysis: 14 stays with a circuit have the PD procedure and
   # 44 have PD charting. Too few to model on. A PD patient is dialysis
   # dependent, but these numbers do not justify a separate flag source.
@@ -174,7 +174,7 @@ items:
   224279: {verdict: exclude, reason: "Multi-lumen CVC."}
   224280: {verdict: exclude, reason: "Multi-lumen CVC."}
   224282: {verdict: exclude, reason: "Multi-lumen CVC."}
-  225128: {verdict: include, roles: [cohort], reason: "Date of last dialysis, admission history (pre-CRRT). Corroborates chronic dialysis; Charted in 235 of 2,798 stays with a circuit; 197 of those also have ICD ESRD and 225126 = 1."}
+  225128: {verdict: include, roles: [cohort], reason: "Date of last dialysis, admission history. A source of the chronic dialysis flag when the date precedes the first circuit; Charted in 235 of 2,798 stays with a circuit; 197 of those also have ICD ESRD and 225126 = 1."}
   226482: {verdict: exclude, reason: "No rows. Blood bank (`clot` pattern noise)."}
 
   # --------------------------------------------------------------------------
@@ -234,7 +234,7 @@ items:
   # --------------------------------------------------------------------------
   # procedureevents
   # --------------------------------------------------------------------------
-  225441: {verdict: include, roles: [cohort], reason: "Intermittent hemodialysis, 730 stays with a circuit. Identifies prior RRT (Part 4.2) and IHD periods next to CRRT."}
+  225441: {verdict: include, roles: [cohort], reason: "Intermittent hemodialysis, 730 stays with a circuit. Describes IHD next to CRRT in the stay (Table 1). Not evidence of chronic dialysis: AKI patients often start on IHD before CRRT (decisions.md, chronic dialysis flag)."}
   224270: {verdict: include, roles: [feature], reason: "Dialysis catheter. In place at the start of about 6,450 of 8,414 circuits. `location` (IJ / femoral / subclavian, by side) is filled in 32% of rows. Site is a known driver of filter life. starttime gives insertion time inside the ICU."}
   224263: {verdict: exclude, reason: "Multi-lumen CVC, not the dialysis access."}
   229517: {verdict: exclude, reason: "Cooling catheter, 14 rows."}

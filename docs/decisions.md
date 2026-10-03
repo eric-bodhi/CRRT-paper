@@ -2,6 +2,65 @@
 
 Every judgment call, with its date (plan Part 14). Newest first.
 
+## 2026-10-02 — Chronic dialysis flag from pre-CRRT evidence only
+
+**Decision.** The chronic dialysis flag (Part 4.2) counts only evidence that
+exists before the stay's first circuit. A stay is flagged if any of these
+holds:
+
+- 225126 "Dialysis patient" = 1 (admission history);
+- 225128 "Last dialysis" charted with a date before the first circuit;
+- a tunneled catheter (227124 `Tunneled (PermaCath)`, 229536
+  `Tunneled 2-Lumen`) charted before the first circuit;
+- a dialysis-dependence ICD code on an *earlier* admission of the same
+  patient.
+
+ICD codes from the same admission count only in a sensitivity flag. The
+handling itself is unchanged: kept and flagged in the primary analysis,
+excluded in a sensitivity analysis. Keys: `cohort.chronic_dialysis`.
+
+| Flag | Circuits ≥4 h | Clotted | Patients |
+|---|---:|---:|---:|
+| Previous: same-admission ICD only | 1,892 (22.5%) | 337 | — |
+| **Primary: pre-CRRT evidence** | **1,742 (20.7%)** | **315** | **538** |
+| Sensitivity: primary + same-admission ICD | 2,449 (29.1%) | 433 | — |
+
+Contributions to the primary flag: admission history 835 circuits, last
+dialysis date 583, tunneled catheter 697, ICD on an earlier admission 971.
+The previous flag is reproduced exactly (1,892 circuits, 337 clots), so the
+22% in the ESRD entry below was same-admission ICD. 707 circuits carried it
+with no pre-CRRT evidence at all.
+
+**Why.**
+
+- Discharge diagnoses are coded after the admission. N18.6 or Z99.2 on the
+  same admission can describe a patient who *became* dialysis dependent
+  during it, which is AKI non-recovery, an outcome of the CRRT course rather
+  than a baseline condition. Among stays where 225126 is charted, at least 68 have
+  same-admission ICD ESRD but 225126 = 0.
+- Used as a feature, a same-admission discharge code is post-*t*
+  information (Part 6.4).
+- The ICD list was checked against `d_icd_diagnoses`, not remembered. It
+  holds ESRD, renal dialysis status or dependence, and noncompliance with
+  renal dialysis. CKD stage 5 and the hypertensive "stage V or ESRD" codes
+  are left out: they do not separate dialysis dependence.
+
+**Changed from the proposal in the itemid review entry.** Intermittent HD
+earlier in the same stay is *not* a source. AKI patients are often started
+on IHD and moved to CRRT when they become unstable, so it would repeat the
+same-admission error. 225441 and 226499 stay included, but only to describe
+IHD next to CRRT.
+
+**Limits.** "Earlier admission" means an earlier admission to this hospital.
+A patient on outpatient dialysis who has never been admitted here before is
+caught only by the admission history, last dialysis date or tunneled
+catheter. Admission history (225126) records pre-admission status, so it
+counts whenever it is charted in the stay. As a model feature, it is
+available only from its charttime.
+
+**Where it applies.** Plan Part 4.2. `config/config.yaml →
+cohort.chronic_dialysis`; the cohort stage (`run_all.sh` stage 1b) reads it.
+
 ## 2026-10-02 — Itemid review
 
 **Decision.** Every candidate in `docs/itemids.md` was reviewed by hand
@@ -21,7 +80,7 @@ itemids, 224146 and 225956 are confirmed.
 | Features: anticoagulation | 228004 citrate, 227529/227528 ACD-A, 227525 CRRT calcium, 224145 circuit heparin, 225152 systemic heparin, 225147 argatroban, 225148 bivalirudin |
 | Features: access | 224270 dialysis catheter (site, insertion), 227124/229536 catheter type, 225322 insertion date |
 | Hypophosphatemia | 225834 K Phos, 225835 Na Phos (repletion); 230083, 230084, 225976 (replacement fluid) |
-| Cohort | 225126, 225128 (dialysis history); 225441, 226499 (intermittent HD); 227124/229536 (tunneled catheter); 225802 |
+| Cohort | 225126, 225128 (dialysis history), 227124/229536 (tunneled catheter): chronic dialysis flag; 225441, 226499 (intermittent HD, descriptive); 225802 |
 | Validation only | 225436 CRRT Filter Change, 225802 CRRT procedure interval |
 
 **Judgment calls.**
@@ -87,8 +146,8 @@ itemids, 224146 and 225956 are confirmed.
   and does not separate sites, so it is excluded. Catheter type (tunneled vs
   temporary) is well populated and is included.
 
-**Still open: the chronic dialysis flag (needs the co-author).** The ESRD
-entry below flags chronic dialysis dependence from ICD codes. Discharge
+**The chronic dialysis flag.** Settled the same day; see the entry above.
+The ESRD entry below flags chronic dialysis dependence from ICD codes. Discharge
 diagnoses of the *same* admission (N18.6, Z99.2) can record dialysis
 dependence that *began* during that admission, which is AKI non-recovery, an
 outcome of the CRRT course. Among stays with a circuit where 225126 "Dialysis
@@ -103,9 +162,7 @@ first circuit:
 - intermittent HD (225441/226499) before the first circuit;
 - an ESRD ICD code on a *prior* admission.
 
-Same-admission ICD would then be a sensitivity analysis. This changes an
-input to a locked decision, and the 22% figure in that entry would move, so
-it is not adopted until it is agreed.
+Same-admission ICD would then be a sensitivity analysis.
 
 **Where it applies.** Plan Parts 2.3, 4.2, 5.2, 6.4 and 7.
 `config/itemid_review.yaml`, `config/config.yaml →

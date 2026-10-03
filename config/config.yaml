@@ -137,11 +137,36 @@ cohort:                                     # Plan Part 4
   # under 1 h). Locked 2026-10-02 (docs/decisions.md). Applied to
   # crrt_circuits.duration_hours at the cohort step.
   min_session_duration_hours: 4
-  # 4.2 — chronic dialysis dependence (ESRD / dialysis-dependence ICD codes;
-  # 22% of circuits, 337 documented clots). Kept and flagged in the primary
+  # 4.2 — chronic dialysis dependence. Kept and flagged in the primary
   # analysis; excluded in a sensitivity analysis. Locked 2026-10-02.
   esrd_handling_primary: keep_and_flag
   esrd_handling_sensitivity: exclude
+  # The flag counts only evidence that exists before the stay's first
+  # circuit (decisions.md, 2026-10-02, "Chronic dialysis flag"). A stay is
+  # flagged if any of these holds:
+  #   - admission history: admission_history_itemid charted = 1;
+  #   - last_dialysis_itemid charted with a date before the first circuit;
+  #   - a tunneled_catheter_values value charted before the first circuit;
+  #   - one of icd_codes on an earlier admission of the same patient.
+  # Codes from the SAME admission are discharge diagnoses that can record
+  # dialysis dependence that began during this stay (AKI non-recovery), so
+  # they count only in the sensitivity flag. Intermittent HD earlier in the
+  # same stay is not evidence: AKI patients often start on IHD.
+  # Circuits >=4 h flagged: 1,742 primary (315 clotted), 2,449 sensitivity.
+  chronic_dialysis:
+    admission_history_itemid: 225126          # "Dialysis patient", value 1
+    last_dialysis_itemid: 225128              # "Last dialysis", a date
+    tunneled_catheter_values:                 # Dialysis Catheter Type
+      227124: Tunneled (PermaCath)
+      229536: Tunneled 2-Lumen
+    # Checked against d_icd_diagnoses 2026-10-02: ESRD, renal dialysis
+    # status / dependence, and noncompliance with renal dialysis (which
+    # implies dependence). CKD stage 5 and the hypertensive "stage V or ESRD"
+    # codes are left out because they do not separate dialysis dependence.
+    icd_codes: ['5856', 'V451', 'V4511', 'V4512',
+                'N186', 'Z992', 'Z9115', 'Z91151', 'Z91158']
+    same_admission_icd_primary: false
+    same_admission_icd_sensitivity: true
   # 4.5 — below this event count you are in a case-series regime, not a
   # modeling regime. Say so honestly rather than fitting XGBoost to it.
   min_events_for_modeling: 100
