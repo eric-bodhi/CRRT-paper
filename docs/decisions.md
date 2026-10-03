@@ -2,6 +2,116 @@
 
 Every judgment call, with its date (plan Part 14). Newest first.
 
+## 2026-10-02 — Itemid review
+
+**Decision.** Every candidate in `docs/itemids.md` was reviewed by hand
+against the full MIMIC-IV 3.1 build (Part 2.3): 167 itemids, 40 included and
+127 excluded. Each verdict and its evidence is in `config/itemid_review.yaml`.
+`crrt.itemid_inventory` copies them into `docs/itemids.md`, which it rewrites
+on every run, so a verdict typed into the markdown would not survive. This
+closes the "Still open" item of the circuits entry below: the five machine
+itemids, 224146 and 225956 are confirmed.
+
+| Role | Included itemids |
+|---|---|
+| Circuit definition | 224144, 224149–224152 (machine running); 224146, 225956 (filter events) |
+| Label | 224146, 225956 |
+| Comparators (Part 8.1) | 224146 `Clots Increasing`; 229247 TMP, 229248 pressure drop, and the raw pressures they derive from |
+| Features: machine and prescription | 227290 mode, 224153, 228005, 228006, 224154 (replacement and dialysate rates), 224191, 226457, 225183 |
+| Features: anticoagulation | 228004 citrate, 227529/227528 ACD-A, 227525 CRRT calcium, 224145 circuit heparin, 225152 systemic heparin, 225147 argatroban, 225148 bivalirudin |
+| Features: access | 224270 dialysis catheter (site, insertion), 227124/229536 catheter type, 225322 insertion date |
+| Hypophosphatemia | 225834 K Phos, 225835 Na Phos (repletion); 230083, 230084, 225976 (replacement fluid) |
+| Cohort | 225126, 225128 (dialysis history); 225441, 226499 (intermittent HD); 227124/229536 (tunneled catheter); 225802 |
+| Validation only | 225436 CRRT Filter Change, 225802 CRRT procedure interval |
+
+**Judgment calls.**
+
+- **The sweep had a recall gap.** `phosph` does not match "K Phos" or
+  "Na Phos". Those are the phosphate repletion items Part 5.2 requires, with
+  418 and 854 stays with a circuit. No pattern matched "clot" either.
+  `phos` and `clot` were added to `itemid_inventory.label_patterns`. Two
+  other gaps were checked and left alone. A pheresis catheter is in place at
+  the start of only 18 circuits. The Prismasate `inputevents` items have no
+  rows.
+- **Laboratory values come from `hosp.labevents`, never chartevents.** The
+  chartevents lab items are copies: 225677 Phosphorous matches labevents
+  50970 at the same subject and charttime in 99.6% of rows, and 229375
+  Anti-Xa matches 51228 in 99.6%. Labevents carries `storetime`. For
+  phosphate, storetime is a median 83 min (p95 248 min) after charttime. The
+  `storetime` rule in the leakage checklist (Part 6.4) therefore changes the
+  hypophosphatemia features materially; it is not a formality.
+- **Pressure drop and TMP can be derived for every era.** The
+  machine-computed 229248 and 229247 exist in only 2,090 stays: 38% of
+  2008–2013 stays (by `anchor_year_group`), 91% of 2014–2016 and all of
+  2017–2022. They track the raw pressures at a fixed offset that is the same
+  in every era:
+  - pressure drop ≈ filter − return − 27 mmHg, within ±10 mmHg in 75% of
+    rows;
+  - TMP ≈ (filter + return)/2 − effluent − 16.5 mmHg, within ±10 mmHg in 91%
+    of rows.
+
+  (Plain Pearson r is 0.07 and 0.17 because of outliers. Within each decile of
+  the derived value the relationship is tight and monotone.) **Proposal for
+  the feature stage, not decided here:** derive both from the raw pressures
+  for every circuit, so the feature means the same thing in every era, and
+  keep the charted values as a check. Report the Hu 2026 rule two ways: on
+  charted values in the circuits that have them, and on derived values for
+  all circuits. Because Prismaflex's computed values are offset from the
+  textbook formulas, Hu's Aquarius thresholds cannot transfer unrecalibrated.
+  That reinforces the recalibrated arm already in Part 3.1.
+- **Anticoagulation is a core feature group, and citrate dominates it.**
+  Across 8,414 circuits:
+
+  | Agent | Circuits |
+  |---|---:|
+  | Citrate charted > 0 | 6,190 (74%) |
+  | Circuit heparin (224145 > 0) | 1,928 |
+  | Systemic heparin infusion (225152) | 1,954 |
+  | Argatroban | 126 |
+  | Bivalirudin | 115 |
+  | None documented | 1,101 (13%) |
+
+  228004 is the primary citrate signal. The ACD-A medication record is the
+  secondary source. 227526 (citrate in mmol) records the same infusion again
+  and is excluded.
+- **224191 and 226457 are both kept.** They are different quantities, a
+  setting and an achieved output: at the same charttime they agree within
+  10 mL in only 44% of rows.
+- **Exposure to phosphate-containing fluid is under-ascertained.** Phoxillium
+  appears only in 230083 and 230084. Those two items cover 412 stays, two
+  thirds of them in 2020–2022. Before them, the only trace is `Other` in
+  225976 (2,232 rows). Part 5.2 must either name this as a limitation or
+  restrict a sensitivity analysis to stays where 230083/230084 are charted.
+- **Catheter site is mostly missing.** The 224270 `location` field is filled
+  in 32% of rows. Lock volume (224404/224406) was tested as a proxy for site
+  and does not separate sites, so it is excluded. Catheter type (tunneled vs
+  temporary) is well populated and is included.
+
+**Still open: the chronic dialysis flag (needs the co-author).** The ESRD
+entry below flags chronic dialysis dependence from ICD codes. Discharge
+diagnoses of the *same* admission (N18.6, Z99.2) can record dialysis
+dependence that *began* during that admission, which is AKI non-recovery, an
+outcome of the CRRT course. Among stays with a circuit where 225126 "Dialysis
+patient" is charted, 68 have ICD ESRD but 225126 = 0. A flag built from
+same-admission ICD would mislabel those patients. Used as a feature, it would
+also be post-*t* information (Part 6.4).
+
+Proposal for the cohort stage: flag only on evidence that exists before the
+first circuit:
+- 225126 = 1, or 225128 charted;
+- a tunneled catheter (227124/229536) charted before the first circuit;
+- intermittent HD (225441/226499) before the first circuit;
+- an ESRD ICD code on a *prior* admission.
+
+Same-admission ICD would then be a sensitivity analysis. This changes an
+input to a locked decision, and the 22% figure in that entry would move, so
+it is not adopted until it is agreed.
+
+**Where it applies.** Plan Parts 2.3, 4.2, 5.2, 6.4 and 7.
+`config/itemid_review.yaml`, `config/config.yaml →
+itemid_inventory.label_patterns`, `src/crrt/itemid_inventory.py`,
+`docs/itemids.md`.
+
 ## 2026-10-02 — Small-cell rule extended to percentiles and Text values
 
 **Decision.** Everything committed or printed goes through

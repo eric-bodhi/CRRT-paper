@@ -88,9 +88,14 @@ itemid_inventory:
     - bivalirudin
     # Vascular access (Part 7 - a known driver of filter life)
     - lumen
-    # Chemistry tied to the outcomes (Parts 5.2, 3)
+    # Clotting and its monitoring. Added 2026-10-02: no earlier pattern
+    # matched 220507 Activated Clotting Time.
+    - clot
+    # Chemistry tied to the outcomes (Parts 5.2, 3). `phos`, not `phosph`:
+    # the phosphate repletion items are labelled "K Phos" and "Na Phos" and
+    # were missed by `phosph` until 2026-10-02.
     - calcium
-    - phosph
+    - phos
     - potassium
     - magnesium
     - bicarb

@@ -81,3 +81,21 @@ pressure**. Pressure is used to validate the label (feasibility §2.4), and a
 label built from pressure would grade a pressure-based model on its own
 inputs. Which classes count as events, non-events or censored is an outcome
 decision (Part 5.1 step 5, Part 5.3), not part of this table.
+
+## Source itemids
+
+The reviewed itemid list is `config/itemid_review.yaml` (Part 2.3; decision:
+`docs/decisions.md` 2026-10-02, "Itemid review"). Each include verdict names
+its role and the evidence for it. A derived variable may read only itemids
+included there. Its entry in this file names the itemids it uses, and its
+plausibility bounds go in `features.plausibility_bounds`.
+
+Two rules from the review apply to every derived variable:
+
+- **Laboratory values come from `hosp.labevents`**, through the mimic-code
+  concepts, never from the chartevents copies (99.6% duplicates). A result is
+  available at its `storetime`, not its `charttime` (Part 6.4).
+- **Circuit-period items are used only inside a circuit.** A few have rows
+  outside one, e.g. 226457 Ultrafiltrate Output at 2.3% (intermittent HD,
+  SCUF). Rows are matched to `crrt_circuits` on `stay_id` and time before
+  use.
