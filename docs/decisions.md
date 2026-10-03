@@ -31,13 +31,26 @@ reads the 2026-10-02 outcome keys unchanged. The new judgment calls:
   the window, the label is null with `censor_reason = 'competing_risk'`.
   Otherwise it is negative, including when the filter comes down in the
   window for a reason that is not an event.
+- **Follow-up is censored at 72 h of circuit age**
+  (`outcomes.circuit_failure.scheduled_change_interval_hours`). This adopts
+  the proposal in the cohort entry below. Rows at 72 h or later are not
+  scored (`past_max_age`). A window that runs past 72 h with the filter still
+  up at 72 h has no observed outcome, so its label is null with
+  `censor_reason = 'max_age'`. An end before 72 h is still observed, even
+  when the window runs past 72 h. The rule uses only circuit age, which is
+  known in real time. Past about 96 h these circuits look like several
+  filters stitched together. 1,066 circuits run past 72 h.
+  **Cost:** 65 clotted circuits clot after 72 h and lose their positive rows.
 - **Blanking stays at 30 min and is still UNLOCKED** (config
   `prediction.blanking_minutes`). The 60 min sensitivity rebinds the same SQL.
 
-**Result (primary, H = 6 h).** 364,036 rows over 8,414 circuits; 335,467
-scored. 9,000 positive rows (2.7% of labelled rows) in 1,673 circuits and
-900 patients, against 9,230 (2.7%) in the feasibility estimate (§2.6).
-4,651 rows are censored by death. One clotted circuit has no positive row.
+**Result (primary, H = 6 h).** 364,036 rows over 8,414 circuits; 317,028
+scored. Of the rows that are not scored, 19,719 are past 72 h, 16,828 are in
+warm-up, 5,801 are blanked and 4,660 are in downtime. There are 8,639
+positive rows (2.8% of labelled rows) in 1,608 circuits and 868 patients.
+5,179 rows are censored at 72 h and 4,356 by death. Without the 72 h censor
+the numbers are 9,000 positive rows (2.7%) in 1,673 circuits. The
+feasibility estimate (§2.6), which had no censor, was 9,230 (2.7%).
 
 **Where it applies.** Plan Parts 5.1, 5.3, 6.1–6.3. `sql/circuit_failure_labels.sql`,
 `src/crrt/outcomes.py`, `run_all.sh` stage 4.

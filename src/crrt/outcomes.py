@@ -38,6 +38,7 @@ def bind_circuit_failure(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) ->
         "blanking": timedelta(minutes=p["blanking_minutes"]),
         "warmup": timedelta(hours=p["warmup_hours"]),
         "running_gap": timedelta(hours=cfg["sessionization"]["gap_hours"]),
+        "max_age": timedelta(hours=o["scheduled_change_interval_hours"]),
         "machine_itemids": c["machine_itemids"],
         "system_integrity_itemid": c["system_integrity_itemid"],
         "event_classes": o["event_classes_primary"],

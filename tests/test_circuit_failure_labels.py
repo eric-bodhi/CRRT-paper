@@ -217,3 +217,38 @@ def test_rows_in_a_pause_longer_than_the_gap_are_not_scored():
         elif WARMUP <= h <= pause_from + GAP:
             assert r["scored"], h
     assert rows[pause_to]["scored"]
+
+
+# ── Censoring at the maximum circuit age ──────────────────────────────────
+
+MAX_AGE = O["scheduled_change_interval_hours"]
+
+
+def test_rows_from_the_maximum_age_on_are_not_scored():
+    rows = by_hour(Circuits().circuit(1, MAX_AGE + 20, "crrt_ended").run()[1])
+    for h, r in rows.items():
+        if h >= MAX_AGE:
+            assert r["not_scored_reason"] == "past_max_age", h
+    assert rows[MAX_AGE - STEP]["scored"]
+
+
+def test_clot_after_the_maximum_age_is_not_observed():
+    """Windows reaching past the maximum age are censored; earlier windows
+    saw the filter running and are negative."""
+    rows = by_hour(Circuits().circuit(1, MAX_AGE + 8, "clotted").run()[1])
+    for h, r in rows.items():
+        if not r["scored"]:
+            continue
+        if h + H <= MAX_AGE:
+            assert r["label"] is False, h
+        else:
+            assert r["label"] is None and r["censor_reason"] == "max_age", h
+
+
+@pytest.mark.parametrize("cls, expected", [("clotted", True), ("reached_limit", False)])
+def test_end_before_the_maximum_age_is_observed_even_if_the_window_runs_past_it(cls, expected):
+    end = MAX_AGE - 2
+    rows = by_hour(Circuits().circuit(1, end, cls).run()[1])
+    h = end - 3  # window (h, h + H] crosses MAX_AGE when H > 5
+    assert h + H > MAX_AGE
+    assert rows[h]["label"] is expected and rows[h]["censor_reason"] is None

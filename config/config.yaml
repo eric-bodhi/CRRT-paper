@@ -262,6 +262,9 @@ outcomes:
   circuit_failure:                          # Plan Part 5.1 — primary outcome
     # Scheduled elective swap interval. Circuit lifespan well short of this is
     # corroborating signal for premature clotting failure (5.1 step 3).
+    # Also the maximum circuit age that is scored: follow-up is censored
+    # here, because past it a "circuit" may be several filters stitched
+    # together (1,066 of 8,414 circuits run longer). Decided 2026-10-03.
     scheduled_change_interval_hours: 72
     # 5.1 step 3 — reported median filter lifespan by mode, used as a sanity
     # benchmark for the extracted distribution, not as a label rule.

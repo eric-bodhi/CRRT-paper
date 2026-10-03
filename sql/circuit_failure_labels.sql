@@ -20,18 +20,26 @@
 --   1. unclear_excluded: the circuit's class is in `unclear_classes` and
 --      `unclear_handling` is 'exclude' (a sensitivity analysis).
 --   2. warmup: less than `warmup` since circuit_start (Part 6.3).
---   3. blanking: within `blanking` of end_time, or after it (Part 6.2).
+--   3. past_max_age: `max_age` or more since circuit_start. Past it a
+--      "circuit" may be several filters stitched together, so follow-up
+--      is censored there (decisions.md 2026-10-02, "Cohort rules").
+--   4. blanking: within `blanking` of end_time, or after it (Part 6.2).
 --      Applied at every circuit end, whatever its class, so that which rows
 --      are scored does not depend on the label.
---   4. downtime: no machine charting in the `running_gap` before the row.
+--   5. downtime: no machine charting in the `running_gap` before the row.
 --      The filter is paused; there is nothing to alert on.
 --
 -- Label, for scored rows: did the filter end as an event in (t, t + horizon]?
---   true   an `event_classes` end_time falls in the window.
---   NULL   a `competing_risk_classes` end_time falls in the window. The
---          circuit was censored by death (Part 5.3); censor_reason says so.
---   false  otherwise: the filter ran through the window, or came down in it
---          for a reason that is not an event.
+-- Follow-up stops at circuit_start + `max_age`.
+--   true   an `event_classes` end_time falls in the window, by max_age.
+--   NULL   a `competing_risk_classes` end_time falls in the window, by
+--          max_age: censored by death (Part 5.3).
+--   false  the filter came down in the window, by max_age, for a reason
+--          that is not an event, or the whole window ends by max_age and the
+--          filter ran through it.
+--   NULL   otherwise: the window runs past max_age with the filter still
+--          up at max_age, so the outcome is not observed.
+-- censor_reason says which NULL a row is.
 --
 -- Parameters are DuckDB variables, set from config/config.yaml by
 -- crrt.outcomes. Expects crrt_circuits, crrt_cohort and chartevents.
@@ -100,11 +108,20 @@ flagged AS (
         CASE
             WHEN is_excluded THEN 'unclear_excluded'
             WHEN pred_time - circuit_start < getvariable('warmup') THEN 'warmup'
+            WHEN pred_time - circuit_start >= getvariable('max_age') THEN 'past_max_age'
             WHEN pred_time + getvariable('blanking') >= end_time THEN 'blanking'
             WHEN last_machine_at IS NULL
               OR pred_time - last_machine_at > getvariable('running_gap') THEN 'downtime'
         END AS not_scored_reason
     FROM running
+),
+
+windows AS (
+    SELECT
+        *,
+        pred_time + getvariable('horizon') AS window_end,
+        circuit_start + getvariable('max_age') AS censor_time
+    FROM flagged
 )
 
 SELECT
@@ -115,13 +132,15 @@ SELECT
     not_scored_reason IS NULL AS scored,
     CASE
         WHEN not_scored_reason IS NOT NULL THEN NULL
-        WHEN is_event AND end_time <= pred_time + getvariable('horizon') THEN true
-        WHEN is_competing AND end_time <= pred_time + getvariable('horizon') THEN NULL
-        ELSE false
+        WHEN end_time <= window_end AND end_time <= censor_time THEN
+            CASE WHEN is_event THEN true WHEN is_competing THEN NULL ELSE false END
+        WHEN window_end <= censor_time THEN false
     END AS label,
     CASE
         WHEN not_scored_reason IS NOT NULL THEN NULL
-        WHEN is_competing AND end_time <= pred_time + getvariable('horizon') THEN 'competing_risk'
+        WHEN end_time <= window_end AND end_time <= censor_time THEN
+            CASE WHEN is_competing THEN 'competing_risk' END
+        WHEN window_end > censor_time THEN 'max_age'
     END AS censor_reason
-FROM flagged
+FROM windows
 ORDER BY circuit_id, pred_time;
