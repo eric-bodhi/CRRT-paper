@@ -100,6 +100,22 @@ Two rules from the review apply to every derived variable:
   SCUF). Rows are matched to `crrt_circuits` on `stay_id` and time before
   use.
 
+### Plausibility bounds
+
+Applied to `valuenum` before any feature is computed (Part 7). Decision and
+evidence: `docs/decisions.md` 2026-10-03, "Plausibility bounds for the CRRT
+machine items".
+
+| Items | Rule | Config key |
+|---|---|---|
+| Machine items: 224144 Blood Flow; 224149, 224150, 224151, 224152 the raw circuit pressures; 229247 TMP; 229248 Pressure Drop; 224153, 228006, 228005, 224154 replacement, post-filter, PBP and dialysate rates; 224191 Hourly Patient Fluid Removal; 226457 Ultrafiltrate Output; 225183 Current Goal; 228004 Citrate (ACD-A); 224145 Heparin Dose | A value outside [low, high] (inclusive) is set to missing. | `features.plausibility_bounds` |
+| Raw circuit pressures 224149, 224150, 224151, 224152 | Exception: a value past a bound by at most the margin is set to the bound (a sensor at its limit). Further out, missing. | `features.pressure_clip_margin_mmhg`, `features.pressure_clip_itemids` |
+
+TMP and pressure drop derived from the raw pressures (feasibility §1) are
+computed from the bounded raw values. Charted 229247 and 229248 are bounded
+on their own. Items without an entry have no bound yet, and no feature may
+read their values until they have one.
+
 ## `crrt_cohort`
 
 One row per `crrt_circuits` row, with the cohort rules applied (Parts 4.1,

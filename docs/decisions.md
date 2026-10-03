@@ -2,6 +2,104 @@
 
 Every judgment call, with its date (plan Part 14). Newest first.
 
+## 2026-10-03 — Plausibility bounds for the CRRT machine items
+
+**Decision.** `features.plausibility_bounds` now bounds the 16 numeric
+`chartevents` items that `config/itemid_review.yaml` includes as circuit,
+feature or comparator inputs. This settles feasibility §6 proposal 9 for the
+machine items. A value outside its bound becomes missing. The exception is
+the four raw circuit pressures. A value at most
+`features.pressure_clip_margin_mmhg` (50) past a bound is set to the bound,
+and only a value further out becomes missing. Medication rates
+(`inputevents`), vitals and labs get bounds when their items are validated
+for the feature stage.
+
+**Where the numbers come from.** Bounds are the machine's own operating or
+settable ranges wherever it has one, not a clinical "normal". These are
+taken from the Prismaflex Service Manual (Gambro G5005209, software 7.xx,
+§8 Specifications). They are identical on the PrisMax spec sheet, so they
+hold whichever machine BIDMC ran in 2020–22. The pressure sensor ranges are
+also tabulated in the supplement of Ferrari et al. 2022 (*ASAIO J*), which
+must be re-verified before it is cited.
+
+Evidence: chartevents rows inside included circuits, by itemid. "Dropped"
+becomes missing and "clipped" is set to the bound. Counts under 10 are
+suppressed.
+
+| itemid | Item, unit | Bound | Source | Rows | Dropped (circuits) | Clipped |
+|---|---|---|---|--:|--:|--:|
+| 224144 | Blood Flow, ml/min | 10 to 450 | device | 311,221 | 229 (163) | — |
+| 224149 | Access Pressure, mmHg | −250 to 450 | device | 339,767 | 72 (69) | 87 |
+| 224150 | Filter Pressure, mmHg | −50 to 450 | device | 339,797 | 145 (124) | 96 |
+| 224151 | Effluent Pressure, mmHg | −350 to 400 | device | 339,504 | 62 (58) | 28 |
+| 224152 | Return Pressure, mmHg | −50 to 350 | device | 339,602 | 154 (108) | 245 |
+| 229247 | Trans Membrane Pressure, mmHg | −450 to 750 | derived from the sensor ranges | 255,862 | 29 (27) | — |
+| 229248 | Pressure Drop, mmHg | −400 to 500 | derived from the sensor ranges | 255,307 | 24 (22) | — |
+| 224153 | Replacement Rate, ml/hr | 0 to 8,000 | device | 312,749 | 103 (18) | — |
+| 228006 | Post Filter Replacement Rate, ml/hr | 0 to 8,000 | device (replacement) | 292,758 | <10 (<10) | — |
+| 228005 | PBP Replacement Rate, ml/hr | 0 to 4,000 | device | 297,299 | 46 (21) | — |
+| 224154 | Dialysate Rate, ml/hr | 0 to 8,000 | device | 314,878 | 27 (16) | — |
+| 224191 | Hourly Patient Fluid Removal, mL | 0 to 2,000 | device | 333,470 | 415 (190) | — |
+| 226457 | Ultrafiltrate Output, mL | 0 to 2,000 | the fluid-removal setting's range | 356,020 | 808 (385) | — |
+| 225183 | Current Goal, mL | −2,000 to 2,000 | the fluid-removal setting's range | 326,502 | 32 (<10) | — |
+| 228004 | Citrate (ACD-A), ml/hr | 0 to 350 | data: gap | 287,713 | 281 (42) | — |
+| 224145 | Heparin Dose (per hour), units | 0 to 4,000 | data: end of continuous tail | 179,586 | 58 (35) | — |
+
+No bound removes more than 0.23% of its item's rows.
+
+**The judgment calls.**
+
+- **Missing, not clipped, by default.** Out-of-range values are
+  mostly entry errors. Medians of the far tail are values like 1,142 mmHg
+  filter pressure or 1.8 million ml/min blood flow. Clipping these to the
+  bound would invent a reading at the extreme.
+- **Except pressures just past the sensor limit.** Out-of-range raw
+  pressures are 0.63% of pressure rows in the last 3 h of clotted circuits,
+  against 0.056% elsewhere. There, most sit just past the limit, such as
+  filter pressure charted as 500 against a 450 limit. That is a sensor at
+  its limit, charted as a round number. Dropping them would remove 154
+  values just before clot events, which is informative missingness in the
+  primary outcome. Clipping within 50 mmHg keeps 69 of those 154 as values
+  at the limit.
+
+  | Pressure rule | Rows dropped (clot end) | Rows clipped (clot end) | r, derived vs charted Δp / TMP |
+  |---|--:|--:|---|
+  | No bounds | — | — | 0.08 / 0.17 |
+  | Drop all out-of-range | 942 (154) | — | 0.913 / 0.959 |
+  | Clip within 25, else drop | 698 (128) | 244 (26) | 0.909 / 0.956 |
+  | **Clip within 50, else drop** | 478 (85) | 464 (69) | 0.906 / 0.956 |
+
+  These figures include charted TMP and pressure drop under the drop rule.
+  Their bounds are derived, not a sensor's, so they are never clipped.
+  The primary rule reproduces the feasibility §1 correlations (0.91 /
+  0.96).
+- **Blood flow 0 is out of range.** The pump's minimum is 10 ml/min. A zero
+  means the pump is stopped, which the circuit definition already treats
+  as downtime. It is not a flow to average into a window.
+- **Negative settings and outputs are missing.** Fluid removal, rates and
+  ultrafiltrate output cannot be set or measured below 0 on the machine.
+  Ultrafiltrate output is achieved net removal: its median of 355 mL
+  matches the fluid-removal setting's 365 mL. That is why it takes the
+  setting's range. It is not total effluent.
+- **Current Goal** is a nursing net-balance goal per hour, not a machine
+  setting. A positive goal is possible, because other inputs count. It
+  takes the fluid-removal range on both sides.
+- **Citrate and heparin have no device range in these units.** ACD-A runs
+  on an external pump. The Prismaflex syringe (2 to 100 ml/h) does not
+  carry it: the median charted rate is 180 ml/hr.
+  - Citrate is cut at an empty gap: no row falls in (350, 450] ml/hr. Above
+    the gap are 4 circuits at a constant 500 ml/hr, 2.5× blood flow
+    against a median ratio of 1.0, plus scattered errors.
+  - The heparin tail decays smoothly to 4,000 units/hr. Beyond that, 30
+    rows remain, 16 of them above 10,000.
+  - Both cuts come from the data. They go to the mentor's clinical
+    plausibility review (Part 14).
+
+**Where it applies.** Plan Part 7. `config/config.yaml → features.plausibility_bounds`,
+`pressure_clip_margin_mmhg`, `pressure_clip_itemids`. Applied by the
+feature stage (not yet built). `docs/data_dictionary.md`, "Plausibility
+bounds".
+
 ## 2026-10-03 — Repletion sensitivity analysis
 
 **Decision.** `sql/hypophos_labels.sql` now has a switch for what a
