@@ -63,3 +63,85 @@ def test_sweep_finds_the_newer_circuit_pressure_items(con):
 def test_candidates_are_unique_per_itemid(con):
     cands = candidates(con, CFG["itemid_inventory"])
     assert len(cands) == len({c["itemid"] for c in cands})
+
+
+# ── Small-cell suppression (Part 1.4) ─────────────────────────────────────
+# docs/itemids.md is committed, so nothing in it may describe fewer than
+# `reporting.small_cell_threshold` rows or stays. These run on a synthetic
+# database, so they need no MIMIC data.
+
+SMALL = CFG["reporting"]["small_cell_threshold"]
+RARE_TEXT = "rare free text that must not be published"
+
+
+@pytest.fixture(scope="module")
+def synthetic_doc():
+    from crrt.itemid_inventory import render
+
+    c = duckdb.connect()
+    c.execute("CREATE TABLE d_items (itemid INTEGER, label VARCHAR, abbreviation VARCHAR, "
+              "linksto VARCHAR, category VARCHAR, unitname VARCHAR, param_type VARCHAR)")
+    c.execute("CREATE TABLE icustays (subject_id INTEGER, stay_id INTEGER)")
+    c.execute("CREATE TABLE chartevents (stay_id INTEGER, itemid INTEGER, value VARCHAR, "
+              "valuenum DOUBLE, valueuom VARCHAR)")
+    for t in ["procedureevents", "outputevents"]:
+        c.execute(f"CREATE TABLE {t} (stay_id INTEGER, itemid INTEGER, value DOUBLE, valueuom VARCHAR)")
+    for t in ["inputevents", "ingredientevents"]:
+        c.execute(f"CREATE TABLE {t} (stay_id INTEGER, itemid INTEGER, amount DOUBLE, "
+                  "amountuom VARCHAR, rate DOUBLE, rateuom VARCHAR)")
+    c.execute("CREATE TABLE datetimeevents (stay_id INTEGER, itemid INTEGER, value TIMESTAMP, "
+              "valueuom VARCHAR)")
+
+    seed = CFG["itemid_inventory"]["seed_category"]
+    rare_numeric, text_item, common_numeric = 1, 2, 3
+    c.executemany("INSERT INTO d_items VALUES (?, ?, NULL, 'chartevents', ?, NULL, ?)", [
+        (rare_numeric, "rare numeric", seed, "Numeric"),
+        (text_item, "text item", seed, "Text"),
+        (common_numeric, "common numeric", seed, "Numeric"),
+    ])
+    # The stay-count query expects at least one seed-category procedure item,
+    # as the real d_items always has.
+    c.execute("INSERT INTO d_items VALUES (4, 'procedure item', NULL, 'procedureevents', ?, "
+              "NULL, 'Process')", [seed])
+    stays = range(SMALL * 2)
+    c.executemany("INSERT INTO icustays VALUES (?, ?)", [(s, s) for s in stays])
+    rows = [(0, rare_numeric, "7", 7.0, "mmHg"), (1, rare_numeric, "8", 8.0, "mmHg")]
+    rows += [(s, text_item, "Clotted", None, None) for s in stays]
+    rows += [(0, text_item, RARE_TEXT, None, None)]
+    rows += [(s, common_numeric, str(s), float(s), "ml/hr") for s in stays]
+    c.executemany("INSERT INTO chartevents VALUES (?, ?, ?, ?, ?)", rows)
+    return render(CFG, c)
+
+
+def table_cells(doc: str) -> list[str]:
+    return [cell.strip() for line in doc.splitlines() if line.startswith("|")
+            for cell in line.strip("|").split("|")]
+
+
+def test_no_small_count_is_printed(synthetic_doc):
+    """Bare integers 1..SMALL-1 in a table cell would be unsuppressed counts.
+    (Ids 1-3 sit in the itemid column, so only count columns are checked.)"""
+    rare_row = next(l for l in synthetic_doc.splitlines() if "| rare numeric |" in l)
+    cells = [c.strip().strip("*") for c in rare_row.strip("|").split("|")]
+    n_rows, n_stays, n_num = cells[6:9]
+    assert (n_rows, n_stays, n_num) == (f"<{SMALL}",) * 3
+    assert f"mmHg (<{SMALL})" in rare_row
+
+
+def test_percentiles_withheld_for_small_samples(synthetic_doc):
+    rare_row = next(l for l in synthetic_doc.splitlines() if "| rare numeric |" in l)
+    p5, p50, p95 = [c.strip() for c in rare_row.strip("|").split("|")][10:13]
+    assert (p5, p50, p95) == ("—", "—", "—")
+    common_row = next(l for l in synthetic_doc.splitlines() if "| common numeric |" in l)
+    assert [c.strip() for c in common_row.strip("|").split("|")][10:13] != ["—"] * 3
+
+
+def test_rare_text_values_are_not_published(synthetic_doc):
+    assert RARE_TEXT not in synthetic_doc
+    assert f"`Clotted` ({SMALL * 2:,})" in synthetic_doc
+    assert "not listed" in synthetic_doc
+
+
+def test_output_does_not_claim_to_be_the_demo(synthetic_doc):
+    assert "Demo 2.2" not in synthetic_doc
+    assert CFG["paths"]["mimic_dir"] in synthetic_doc

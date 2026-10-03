@@ -2,6 +2,28 @@
 
 Every judgment call, with its date (plan Part 14). Newest first.
 
+## 2026-10-02 — Small-cell rule extended to percentiles and Text values
+
+**Decision.** Everything committed or printed goes through
+`crrt.report.count`, which shows counts from 1 to 9 as `<10`
+(`reporting.small_cell_threshold`). Two extensions apply wherever values,
+not just counts, are published, starting with `docs/itemids.md`:
+
+- **Percentiles** are shown only when at least 10 numeric values from at
+  least 10 stays stand behind them. Otherwise they are shown as —.
+- **Text values** charted fewer than 10 times are not listed at all; the
+  table only notes that such values exist.
+
+**Why.** The aggregate exemption (entry below) covers counts with small cells
+suppressed. A p5 or p95 over a handful of rows is close to a row-level
+value. A rare value of a Text item may be free text, and free text is
+explicitly not exempt.
+
+**Where it applies.** Plan Part 1.4, `src/crrt/report.py`,
+`src/crrt/itemid_inventory.py`. `docs/itemids.md` is now generated from the
+full MIMIC-IV 3.1 build. Its `include? / reason` column was empty before
+the regeneration, so no review was lost.
+
 ## 2026-10-02 — Primary event, unclear and death handling, ESRD, duration floor, feature windows
 
 **Decision.** These settle feasibility §6 proposals 1, 3, 8 and 12, plus the
