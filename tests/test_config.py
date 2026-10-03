@@ -33,6 +33,7 @@ REQUIRED_KEYS = [
     "circuits.windows_hours",
     "circuits.reached_limit_hours",
     "reporting.small_cell_threshold",
+    "prediction.step_hours",
     "prediction.horizon_hours",
     "prediction.horizon_hours_sensitivity",
     "prediction.blanking_minutes",

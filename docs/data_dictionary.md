@@ -144,3 +144,41 @@ and "Chronic dialysis flag". Downstream stages read `WHERE included`.
 | `chronic_dialysis_sensitivity` | boolean | As above with `same_admission_icd_sensitivity`. |
 | `exclusion_reason` | text | First rule failed, in STROBE order: `under_min_age`, `under_min_duration`. Null if included. |
 | `included` | boolean | `exclusion_reason` is null. |
+
+## `circuit_failure_labels`
+
+One row per included `crrt_cohort` circuit per prediction time, with the
+primary circuit-failure label (Parts 5.1, 5.3, 6.1–6.3). Built by
+`sql/circuit_failure_labels.sql`, run from `uv run python -m crrt.outcomes`
+(stage 4 of `run_all.sh`). Decisions: `docs/decisions.md` 2026-10-02,
+"Primary event, unclear and death handling", and 2026-10-03,
+"Circuit-failure prediction rows". The model stages read `WHERE scored`.
+
+**Sources.**
+
+| Role | Table | itemid / column | Config key |
+|---|---|---|---|
+| Circuits | `crrt_circuits`, `crrt_cohort` | `included` circuits | — |
+| Machine running | `chartevents` | `circuits.machine_itemids` (`valuenum` not null) | `circuits.machine_itemids` |
+| Documented end | `chartevents` | 224146 System Integrity `Clotted` / `Clots Increasing` | `circuits.system_integrity_itemid`, `circuits.windows_hours` |
+
+**Cleaning rules.**
+
+- No row is dropped. A row that is not scored names the first rule it fails.
+- The documenting entry is searched in the same window `crrt_circuits` used
+  to classify the circuit (`windows_hours.clotted_at_end`,
+  `windows_hours.clots_increasing_at_end`), and only for circuits of that
+  class.
+- `label` is null on every row that is not scored.
+
+| Column | Type / unit | Definition |
+|---|---|---|
+| `circuit_id`, `subject_id`, `stay_id` | integer | As in `crrt_circuits`. `subject_id` is the grouping key for splits and CIs (Part 4.3). |
+| `pred_time` | timestamp | Prediction time *t*: `circuit_start + k · prediction.step_hours`, up to `circuit_end`. |
+| `hours_since_start` | hours | `pred_time − circuit_start`. |
+| `termination_class` | text | As in `crrt_circuits`. Never a feature. |
+| `end_time` | timestamp | When the filter ended: the earlier of `circuit_end` and the first System Integrity entry documenting the class (`Clotted` for `clotted`, `Clots Increasing` for `clots_increasing`). Never a feature. |
+| `not_scored_reason` | text | First rule failed, in order: `unclear_excluded` (class in `outcomes.circuit_failure.unclear_classes` and `unclear_handling` = `exclude`); `warmup` (`hours_since_start < prediction.warmup_hours`); `blanking` (`pred_time + prediction.blanking_minutes ≥ end_time`, any class); `downtime` (no machine charting in the `sessionization.gap_hours` up to `pred_time`). Null if scored. |
+| `scored` | boolean | `not_scored_reason` is null. |
+| `label` | boolean | Scored rows only. True if the class is in `event_classes` and `end_time ≤ pred_time + prediction.horizon_hours`. Null (censored) if the class is in `competing_risk_classes` and `end_time` is in the window. Otherwise false. |
+| `censor_reason` | text | Why a scored row's `label` is null: `competing_risk`. |

@@ -2,6 +2,46 @@
 
 Every judgment call, with its date (plan Part 14). Newest first.
 
+## 2026-10-03 — Circuit-failure prediction rows
+
+**Decision.** `sql/circuit_failure_labels.sql` turns each included circuit
+into prediction rows (Part 6.1) and labels them with the primary event. It
+reads the 2026-10-02 outcome keys unchanged. The new judgment calls:
+
+- **Grid.** One row at `circuit_start + k · prediction.step_hours` (1 h),
+  up to `circuit_end`. Every row is kept; rows that are not scored carry a
+  `not_scored_reason`, so the row flow can be counted like the STROBE flow.
+- **The filter ends at the earlier of the last machine charting and the
+  System Integrity entry that documents its class.** In 113 of 1,674 clotted
+  circuits `Clotted` is charted more than 30 min before the machine stops
+  (54 more than an hour before). Taking `circuit_end` as the event time
+  would score rows after the clot was charted: prediction of the present,
+  the thing blanking (Part 6.2) exists to stop. 440 circuits end earlier
+  under this rule.
+- **Blanking applies at every circuit end, not only at events.** Which rows
+  are scored then does not depend on the label. Blanking only at events
+  would drop the last rows of clotted circuits and keep them for every
+  other circuit, a difference the model could learn.
+- **Rows in downtime are not scored.** A row with no machine charting in
+  the preceding `sessionization.gap_hours` falls inside a pause on the same
+  filter (`n_pieces` > 1). The rule uses only the past, so it can run in
+  real time. 5,034 rows.
+- **Fixed-horizon binary labels with censoring (Part 5.3).** A row is
+  positive if an event end falls in (*t*, *t* + H]. If a death end falls in
+  the window, the label is null with `censor_reason = 'competing_risk'`.
+  Otherwise it is negative, including when the filter comes down in the
+  window for a reason that is not an event.
+- **Blanking stays at 30 min and is still UNLOCKED** (config
+  `prediction.blanking_minutes`). The 60 min sensitivity rebinds the same SQL.
+
+**Result (primary, H = 6 h).** 364,036 rows over 8,414 circuits; 335,467
+scored. 9,000 positive rows (2.7% of labelled rows) in 1,673 circuits and
+900 patients, against 9,230 (2.7%) in the feasibility estimate (§2.6).
+4,651 rows are censored by death. One clotted circuit has no positive row.
+
+**Where it applies.** Plan Parts 5.1, 5.3, 6.1–6.3. `sql/circuit_failure_labels.sql`,
+`src/crrt/outcomes.py`, `run_all.sh` stage 4.
+
 ## 2026-10-02 — Cohort rules
 
 **Decision.** `sql/crrt_cohort.sql` keeps every circuit and flags the

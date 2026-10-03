@@ -240,6 +240,8 @@ circuits:                                   # Plan Parts 4.3, 4.4, 5.1
 prediction:                                 # Plan Part 6
   # 6.1 — at every hour t during an active circuit, using only data available
   # at or before t, predict whether the event occurs in (t, t+H].
+  # Prediction times are circuit_start + k * step_hours, k = 0, 1, ...
+  step_hours: 1
   horizon_hours: 6
   horizon_hours_sensitivity: [3, 12]
 
