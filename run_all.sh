@@ -9,7 +9,8 @@
 #
 # Usage: ./run_all.sh
 #
-# Implemented so far: database build, the itemid evidence sweep, and circuits.
+# Implemented so far: database build, the itemid evidence sweep, circuits, and
+# the cohort with its STROBE flow.
 
 set -euo pipefail
 
@@ -28,10 +29,12 @@ uv run python -m crrt.itemid_inventory
 #    -> table crrt_circuits. Prints aggregate counts only.
 uv run python -m crrt.circuits
 
+# 3. Cohort (Parts 4.1, 4.2, 4.6): every circuit with its exclusion flags and
+#    the chronic dialysis flag -> table crrt_cohort; STROBE flow -> docs/strobe.md.
+uv run python -m crrt.cohort
+
 # Stages below are not implemented yet. Uncomment as each lands.
 #
-# 1b. Extraction       (Part 2.3, 4)   cohort from the reviewed itemid list
-# 3. STROBE counts     (Part 4.6)      exact N at every exclusion step
 # 4. Outcome labels    (Part 5)        circuit failure + hypophosphatemia
 # 5. Features          (Part 7)        windowed machine/clinical features
 # 6. Leakage checks    (Part 6.4-6.5)  checklist + shuffled-label control

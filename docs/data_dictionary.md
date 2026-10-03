@@ -99,3 +99,48 @@ Two rules from the review apply to every derived variable:
   outside one, e.g. 226457 Ultrafiltrate Output at 2.3% (intermittent HD,
   SCUF). Rows are matched to `crrt_circuits` on `stay_id` and time before
   use.
+
+## `crrt_cohort`
+
+One row per `crrt_circuits` row, with the cohort rules applied (Parts 4.1,
+4.2). Built by `sql/crrt_cohort.sql`, run from `uv run python -m crrt.cohort`
+(stage 3 of `run_all.sh`), which also writes the STROBE flow to
+`docs/strobe.md`. Decisions: `docs/decisions.md` 2026-10-02, "Cohort rules"
+and "Chronic dialysis flag". Downstream stages read `WHERE included`.
+
+**Sources.**
+
+| Role | Table | itemid / column | Config key |
+|---|---|---|---|
+| Circuits | `crrt_circuits` | all | — |
+| Age | `patients`, `icustays` | `anchor_age`, `anchor_year`, `intime` | `cohort.min_age_years` |
+| Admission history | `chartevents` | 225126 Dialysis patient (`valuenum`) | `cohort.chronic_dialysis.admission_history_*` |
+| Last dialysis | `datetimeevents` | 225128 Last dialysis (`value`) | `cohort.chronic_dialysis.last_dialysis_itemid` |
+| Tunneled catheter | `chartevents` | 227124, 229536 Dialysis Catheter Type (`value`) | `cohort.chronic_dialysis.tunneled_catheter_values` |
+| Dialysis-dependence codes | `diagnoses_icd`, `admissions` | `icd_code`, `admittime` | `cohort.chronic_dialysis.icd_codes` |
+
+**Cleaning rules.**
+
+- No row is dropped; exclusions are flags.
+- CRRT start for the chronic dialysis flag is the stay's first circuit of at
+  least `cohort.min_session_duration_hours`. Evidence charted after it does
+  not count (except admission history, which records pre-admission status).
+- ICD codes match `icd_code` exactly, with no dots, as MIMIC stores them.
+- "Earlier admission" means an admission of the same patient with an earlier
+  `admittime`.
+
+| Column | Type / unit | Definition |
+|---|---|---|
+| `circuit_id`, `subject_id`, `hadm_id`, `stay_id` | integer | As in `crrt_circuits`. |
+| `age_years` | years | `anchor_age + year(intime) − anchor_year` (mimic-code `age`). |
+| `adult` | boolean | `age_years ≥ cohort.min_age_years`. |
+| `meets_min_duration` | boolean | `duration_hours ≥ cohort.min_session_duration_hours`. |
+| `src_admission_history` | boolean | 225126 = `admission_history_value` charted in the stay. |
+| `src_last_dialysis` | boolean | 225128 charted with a date before CRRT start. |
+| `src_tunneled_catheter` | boolean | A `tunneled_catheter_values` value charted before CRRT start. |
+| `src_prior_admission_icd` | boolean | An `icd_codes` code on an earlier admission. |
+| `src_same_admission_icd` | boolean | An `icd_codes` code on this admission (a discharge diagnosis). |
+| `chronic_dialysis` | boolean | Primary flag: any of the four pre-CRRT sources, plus same-admission ICD if `same_admission_icd_primary`. Flag only (`esrd_handling_primary`). |
+| `chronic_dialysis_sensitivity` | boolean | As above with `same_admission_icd_sensitivity`. |
+| `exclusion_reason` | text | First rule failed, in STROBE order: `under_min_age`, `under_min_duration`. Null if included. |
+| `included` | boolean | `exclusion_reason` is null. |
