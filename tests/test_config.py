@@ -54,6 +54,8 @@ REQUIRED_KEYS = [
     "outcomes.hypophosphatemia.horizon_hours",
     "outcomes.hypophosphatemia.known_value_max_age_hours",
     "outcomes.hypophosphatemia.repletion_itemids",
+    "outcomes.hypophosphatemia.oral_repletion_drugs",
+    "outcomes.hypophosphatemia.oral_repletion_routes",
     "outcomes.citrate_accumulation.total_to_ionized_calcium_ratio",
     "features.window_hours",
     "features.min_points_for_trend",

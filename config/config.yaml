@@ -319,6 +319,18 @@ outcomes:
     # Part 5.2 (itemid_review.yaml: K Phos, Na Phos). A dose started in
     # the window before any low value censors the row.
     repletion_itemids: [225834, 225835]
+    # Oral phosphate repletion: a hosp.prescriptions order whose lower(drug)
+    # and route are both listed, censoring the row like an IV dose when its
+    # starttime is in the window. Reviewed by hand 2026-10-03 from every
+    # drug name containing "phos" or "neutra" among cohort patients:
+    # Neutra-Phos and Phosphorus (K-Phos Neutral tablets) are the only oral
+    # supplements. Left out: phosphate salts of other drugs (codeine,
+    # dexamethasone, oseltamivir, ...), Caphosol (a mouth rinse) and Fleet
+    # Phospho-soda (a bowel prep, under 10 orders). Prescriptions, not emar:
+    # emar covers 37% of circuits before 2014 and 98-99% from 2017, which
+    # would make the censor differ by era (decisions.md 2026-10-03).
+    oral_repletion_drugs: [neutra-phos, phosphorus]
+    oral_repletion_routes: [PO/NG, PO, NG]
 
   citrate_accumulation:                     # Plan Part 3 table
     total_to_ionized_calcium_ratio: 2.5

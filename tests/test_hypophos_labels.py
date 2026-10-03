@@ -25,6 +25,8 @@ H = HP["horizon_hours"]
 MAX_AGE = HP["known_value_max_age_hours"]
 PHOS = HP["phosphate_itemid"]
 REPLETION = HP["repletion_itemids"][0]
+ORAL_DRUG = HP["oral_repletion_drugs"][0]
+ORAL_ROUTE = HP["oral_repletion_routes"][0]
 NORMAL = THRESHOLD + 1
 LOW = THRESHOLD - 0.5
 # Results are stored this long after the draw (feasibility §3: 76 min median).
@@ -42,6 +44,7 @@ class Patient:
         self.end_h = end_h
         self.labs: list[tuple] = []
         self.doses: list[float] = []
+        self.orders: list[tuple] = []
         self.death_h: float | None = None
         self.included = True
 
@@ -60,6 +63,11 @@ class Patient:
         self.doses.append(h)
         return self
 
+    def order(self, h: float, drug: str = ORAL_DRUG, route: str = ORAL_ROUTE):
+        """A prescription starting at hour h. MIMIC capitalises drug names."""
+        self.orders.append((drug.title(), route, at(h)))
+        return self
+
     def dies(self, h: float):
         self.death_h = h
         return self
@@ -74,6 +82,8 @@ class Patient:
                     "charttime TIMESTAMP, storetime TIMESTAMP, valuenum DOUBLE)")
         con.execute("CREATE TABLE inputevents (subject_id INTEGER, itemid INTEGER, "
                     "starttime TIMESTAMP)")
+        con.execute("CREATE TABLE prescriptions (subject_id INTEGER, drug VARCHAR, "
+                    "route VARCHAR, starttime TIMESTAMP)")
         con.execute("CREATE TABLE admissions (hadm_id INTEGER, deathtime TIMESTAMP)")
         con.execute("INSERT INTO crrt_circuits VALUES (1, 1, 1, 1, ?, ?)", [ORIGIN, at(self.end_h)])
         con.execute("INSERT INTO crrt_cohort VALUES (1, ?)", [self.included])
@@ -83,6 +93,8 @@ class Patient:
             con.execute("INSERT INTO labevents VALUES (1, ?, ?, ?, ?)", [PHOS, charttime, storetime, v])
         for h in self.doses:
             con.execute("INSERT INTO inputevents VALUES (1, ?, ?)", [REPLETION, at(h)])
+        for drug, route, start in self.orders:
+            con.execute("INSERT INTO prescriptions VALUES (1, ?, ?, ?)", [drug, route, start])
         build_hypophos(con, CFG)
         cur = con.execute("SELECT * FROM hypophos_labels ORDER BY pred_time")
         cols = [d[0] for d in cur.description]
@@ -187,3 +199,32 @@ def test_window_with_no_draw_is_censored_not_negative():
 def test_window_with_only_normal_draws_is_negative():
     rows = Patient().every(-1, 60, 6).run()
     assert rows[1]["label"] is False and rows[1]["censor_reason"] is None
+
+
+# ── Oral repletion ────────────────────────────────────────────────────────
+
+
+def low_at_20() -> Patient:
+    return Patient().phos(-1, NORMAL).every(5, 19, 6).phos(20, LOW)
+
+
+def test_new_oral_order_before_the_low_draw_censors():
+    rows = low_at_20().order(15).run()
+    assert rows[10]["label"] is None and rows[10]["censor_reason"] == "repletion"
+    assert rows[16]["label"] is True
+
+
+def test_oral_order_started_before_t_does_not_censor():
+    """Ongoing supplements are known at t: a feature, not a new decision."""
+    rows = low_at_20().order(5).run()
+    assert rows[10]["label"] is True and rows[10]["censor_reason"] is None
+
+
+@pytest.mark.parametrize("drug, route", [
+    ("caphosol", ORAL_ROUTE),               # mouth rinse
+    ("codeine phosphate", ORAL_ROUTE),      # phosphate salt of another drug
+    (ORAL_DRUG, "IV"),                      # not an oral route
+])
+def test_other_phosphate_named_orders_do_not_censor(drug, route):
+    rows = low_at_20().order(15, drug, route).run()
+    assert rows[10]["label"] is True

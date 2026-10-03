@@ -2,6 +2,53 @@
 
 Every judgment call, with its date (plan Part 14). Newest first.
 
+## 2026-10-03 — Oral phosphate repletion censors like IV
+
+**Decision.** A new oral phosphate order started in the label window before
+any low draw censors the row (`censor_reason = 'repletion'`), exactly like an
+IV dose. This closes "oral phosphate is not counted yet" in the
+hypophosphatemia entry below.
+
+- **What counts.** A `prescriptions` row for Neutra-Phos or Phosphorus
+  (K-Phos Neutral tablets) by PO/NG, PO or NG, timed at `starttime`. Every
+  drug name containing "phos" or "neutra" among cohort patients was reviewed
+  by hand. The others are phosphate salts of unrelated drugs (codeine,
+  dexamethasone, oseltamivir, cyclophosphamide, ...), Caphosol (a mouth
+  rinse), and Fleet Phospho-soda (a bowel prep, under 10 orders). Phosphate
+  binders do not match the pattern and are not repletion.
+- **The source is the order (`prescriptions`), not the administration
+  (`emar`).** `emar` is the better record when it exists, because it has dose
+  times and "Not Given". But it charts some medication during 37% of circuits
+  in 2008–13, 71% in 2014–16 and 98–99% from 2017. A censor built on it would
+  be applied much more often in the temporal test era (Part 9.2). Oral orders
+  that start during a circuit are steady across eras: 294 / 212 / 256 / 298 /
+  413 circuits.
+- **Only new orders count.** Doses given under an order that started before
+  *t* mean the patient is already on supplements at *t*. That is a feature,
+  not a decision made after the prediction. The same reasoning as the IV
+  rule, where each dose is its own order.
+
+**Result (primary).** Repletion censoring rises from 6,766 rows in 305
+circuits to 17,410 rows in 775 circuits (8.9% of scored rows). Positive rows
+fall from 27,794 to 26,063, and negatives from 148,621 to 139,839.
+Prevalence among labelled rows is 15.7% (was 15.8%). 1,300 at-risk stays
+have an incident event (was 1,301).
+
+**Consequence.** Repletion is started for patients drifting toward the
+threshold, so this censoring is informative: most of the newly censored rows
+were negatives. A sensitivity analysis that does not censor on repletion, or
+that treats it as part of a composite event, would bound the effect. It is
+not built yet.
+
+**Found while checking, not changed here.** IV phosphate in `inputevents`
+falls off in 2020–22. It is given during 217 circuits there, against 411 by
+`emar` and 426 by IV `prescriptions`. In 2017–19 the three agree
+(456 / 465 / 460). The IV censor therefore under-counts in the temporal test
+era. Sodium glycerophosphate (IV, 52 patients) is in `prescriptions` only.
+
+**Where it applies.** Plan Part 5.2. `sql/hypophos_labels.sql`,
+`config/config.yaml → outcomes.hypophosphatemia`.
+
 ## 2026-10-03 — Hypophosphatemia prediction rows
 
 **Decision.** `sql/hypophos_labels.sql` labels the secondary outcome (Part

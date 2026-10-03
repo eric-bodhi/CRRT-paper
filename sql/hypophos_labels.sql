@@ -24,9 +24,11 @@
 --      CRRT start, or the row would be already_low).
 --
 -- Label, for scored rows, over the window (t, t + horizon]:
---   NULL   repletion: an IV phosphate dose starts in the window before any
---          low value. It is a competing intervention (Part 5.2) that can
---          prevent the event.
+--   NULL   repletion: an IV phosphate dose, or a new oral phosphate order,
+--          starts in the window before any low value. It is a competing
+--          intervention (Part 5.2) that can prevent the event. Oral doses
+--          under an order that started before t are not new: the patient
+--          is already on supplements at t, which is a feature.
 --   true   the event is drawn in the window.
 --   NULL   competing_risk: the patient dies in the window (Part 5.3).
 --   NULL   unmeasured: no phosphate is drawn in the window, so its absence
@@ -35,8 +37,8 @@
 -- censor_reason says which NULL a row is.
 --
 -- Parameters are DuckDB variables, set from config/config.yaml by
--- crrt.outcomes. Expects crrt_circuits, crrt_cohort, labevents, inputevents
--- and admissions.
+-- crrt.outcomes. Expects crrt_circuits, crrt_cohort, labevents, inputevents,
+-- prescriptions and admissions.
 
 CREATE OR REPLACE TABLE hypophos_labels AS
 WITH circ AS (
@@ -95,6 +97,12 @@ repletion AS (
     SELECT subject_id, starttime
     FROM inputevents
     WHERE list_contains(getvariable('repletion_itemids'), itemid)
+    UNION ALL
+    SELECT subject_id, starttime
+    FROM prescriptions
+    WHERE list_contains(getvariable('oral_repletion_drugs'), lower(drug))
+      AND list_contains(getvariable('oral_repletion_routes'), route)
+      AND starttime IS NOT NULL
 ),
 
 -- The first draw and the first repletion dose after t.
