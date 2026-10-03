@@ -240,6 +240,8 @@ circuits:                                   # Plan Parts 4.3, 4.4, 5.1
 prediction:                                 # Plan Part 6
   # 6.1 — at every hour t during an active circuit, using only data available
   # at or before t, predict whether the event occurs in (t, t+H].
+  # Prediction times are circuit_start + k * step_hours, k = 0, 1, ...
+  step_hours: 1
   horizon_hours: 6
   horizon_hours_sensitivity: [3, 12]
 
@@ -260,6 +262,9 @@ outcomes:
   circuit_failure:                          # Plan Part 5.1 — primary outcome
     # Scheduled elective swap interval. Circuit lifespan well short of this is
     # corroborating signal for premature clotting failure (5.1 step 3).
+    # Also the maximum circuit age that is scored: follow-up is censored
+    # here, because past it a "circuit" may be several filters stitched
+    # together (1,066 of 8,414 circuits run longer). Decided 2026-10-03.
     scheduled_change_interval_hours: 72
     # 5.1 step 3 — reported median filter lifespan by mode, used as a sanity
     # benchmark for the extracted distribution, not as a label rule.
@@ -291,9 +296,29 @@ outcomes:
 
   hypophosphatemia:                         # Plan Part 5.2 — secondary outcome
     # Incident serum phosphate during CRRT, in a patient not already below
-    # threshold at prediction time.
+    # threshold at prediction time. Thresholds decided 2026-10-03
+    # (feasibility §6 proposal 6): moderate is the modelled outcome, the
+    # sensitivity threshold rebinds the same SQL, and severe is reported
+    # descriptively only (75 incident stays, under
+    # cohort.min_events_for_modeling).
     moderate_mg_dl: 2.0
+    sensitivity_mg_dl: 1.5
     severe_mg_dl: 1.0
+    # hosp.labevents Phosphate, mg/dL (one unit in every row). Not in the
+    # mimic-code chemistry concept, so it is read directly; the chartevents
+    # copy 225677 is excluded (itemid_review.yaml).
+    phosphate_itemid: 50970
+    # Part 3.2: "will this patient drop below 2.0 mg/dL in the next 24
+    # hours". Phosphate is drawn every 6.5 h (median, feasibility §3).
+    horizon_hours: 24
+    # A row is at risk only if a phosphate result at or above threshold is
+    # available (storetime <= t) and was drawn no longer ago than this.
+    # Same 24 h window as the feasibility baseline.
+    known_value_max_age_hours: 24
+    # inputevents IV phosphate repletion, the competing intervention of
+    # Part 5.2 (itemid_review.yaml: K Phos, Na Phos). A dose started in
+    # the window before any low value censors the row.
+    repletion_itemids: [225834, 225835]
 
   citrate_accumulation:                     # Plan Part 3 table
     total_to_ionized_calcium_ratio: 2.5

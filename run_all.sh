@@ -9,8 +9,8 @@
 #
 # Usage: ./run_all.sh
 #
-# Implemented so far: database build, the itemid evidence sweep, circuits, and
-# the cohort with its STROBE flow.
+# Implemented so far: database build, the itemid evidence sweep, circuits, the
+# cohort with its STROBE flow, and the outcome labels.
 
 set -euo pipefail
 
@@ -33,9 +33,13 @@ uv run python -m crrt.circuits
 #    the chronic dialysis flag -> table crrt_cohort; STROBE flow -> docs/strobe.md.
 uv run python -m crrt.cohort
 
+# 4. Outcome labels (Parts 5, 6.1-6.3): one row per circuit per prediction
+#    time with its label -> tables circuit_failure_labels and hypophos_labels.
+#    Prints aggregate counts only.
+uv run python -m crrt.outcomes
+
 # Stages below are not implemented yet. Uncomment as each lands.
 #
-# 4. Outcome labels    (Part 5)        circuit failure + hypophosphatemia
 # 5. Features          (Part 7)        windowed machine/clinical features
 # 6. Leakage checks    (Part 6.4-6.5)  checklist + shuffled-label control
 # 7. Models            (Part 8)        baseline -> LR -> GBM -> temporal
