@@ -10,7 +10,7 @@
 # Usage: ./run_all.sh
 #
 # Implemented so far: database build, the itemid evidence sweep, circuits, the
-# cohort with its STROBE flow, and the outcome labels.
+# cohort with its STROBE flow, the outcome labels, and the machine features.
 
 set -euo pipefail
 
@@ -38,9 +38,13 @@ uv run python -m crrt.cohort
 #    Prints aggregate counts only.
 uv run python -m crrt.outcomes
 
+# 5. Features (Part 7): one row per prediction row, from data stored by the
+#    prediction time -> table machine_features. Clinical groups to follow.
+#    Prints aggregate coverage only.
+uv run python -m crrt.features
+
 # Stages below are not implemented yet. Uncomment as each lands.
 #
-# 5. Features          (Part 7)        windowed machine/clinical features
 # 6. Leakage checks    (Part 6.4-6.5)  checklist + shuffled-label control
 # 7. Models            (Part 8)        baseline -> LR -> GBM -> temporal
 # 8. Evaluation        (Part 9, 10)    nested CV, calibration, subgroups

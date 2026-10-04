@@ -2,6 +2,98 @@
 
 Every judgment call, with its date (plan Part 14). Newest first.
 
+## 2026-10-03 — Machine features
+
+**Decision.** `sql/machine_features.sql` builds the machine/circuit feature
+group (Part 7, first bullet) as `machine_features`. That is stage 5 of
+`run_all.sh`. It has one row per `circuit_failure_labels` row, which is the
+same grid as `hypophos_labels`, and 344 columns:
+
+- the 12 machine items in `features.machine_signals`;
+- five derived signals: pressure drop, TMP, total UF rate, and the two
+  flow-adjusted ratios from the pressure-trend work (Part 3.1);
+- for each of the 17 signals: the last value, hours since it, and n / mean /
+  min / max / slope / variance over each of `features.window_hours`;
+- CRRT mode and circuit runtime.
+
+Anticoagulation (228004 citrate, 224145 heparin) is not in this group. It
+has its own group, which must union `chartevents` with `inputevents`
+(feasibility §6 proposal 8).
+
+**The judgment calls.**
+
+- **A value counts once it is stored.** It needs `storetime ≤ t` as well as
+  `charttime ≤ t` (Part 6.4).
+  - Inside included circuits, 15–19% of machine values are stored more than
+    an hour after their charttime, and 2–3% more than 3 h after.
+  - 226457 Ultrafiltrate Output is stored a median 75 min after its
+    charttime, so its charttime comes before the value exists.
+  - With charttime alone, 36% of scored rows would take a pressure charted at
+    *t* itself as the last value. With `storetime`, 3.2% do.
+- **Windows are closed, [t − w, t].** On hourly charting a 3 h window then
+  holds up to four values.
+  - Even so, gating on `storetime` leaves a median of three values. The 3 h
+    slope exists in 54% of scored rows, against 73% without the gate. For
+    226457 it exists in 2.4%, because of its late storage.
+  - The windows and the three-point minimum (2026-10-02) are kept. A missing
+    slope is informative missingness, and the 12 h slope exists in 85–97% of
+    rows. **The authors should confirm** that a half-missing 3 h trend is
+    acceptable.
+- **TMP and pressure drop are derived from the raw pressures in every era.**
+  They are not calibrated, and the charted 229247 / 229248 are not used. This
+  departs from feasibility §6 proposal 8 ("calibrated on 2014+"):
+  - The charted values sit a constant distance from the manual's formulas in
+    every `anchor_year_group`: pressure drop −26 to −29 mmHg, TMP −15 to
+    −17.5 mmHg (medians, at the same charttime).
+    - A calibration would only add that constant. That changes no slope,
+      variance or ranking.
+    - Estimating it on all the data would be a statistic fit outside the
+      training fold (Part 6.4).
+  - The charted items exist only from ~2014, so using them where present
+    would encode the era.
+  - The Hu 2026 rule is defined on machine-computed values. Whether it needs
+    the offset is decided at the comparator stage (Part 8.1). The offset
+    cancels in a change of Δp/BFR except when blood flow changes.
+- **`uf_rate` = PBP + replacement + net fluid removal setting** (228005 +
+  224153 + 224191). 224153 is total replacement, not pre-filter only:
+  - It is ≥ 228006 Post Filter Replacement Rate at the same charttime in
+    99.2% of rows.
+  - 228006 is a median 12.5% of it.
+  - So adding 228006 would count post-filter replacement twice.
+- **Values count only inside their circuit** (`charttime ≥ circuit_start`).
+  A window that reaches back past the circuit start would otherwise read
+  pressures from the previous filter.
+- **`_last` looks back over the longest window only.** A machine value older
+  than 12 h falls in downtime, and those rows are not scored.
+- **Derived signals need every component at the same charttime.** The four
+  raw pressures are charted together in 99.8% of rows.
+
+**Coverage, scored circuit-failure rows (317,028).**
+
+| Signal | Has last | Median n, 3 h | 3 h slope | 12 h slope |
+|---|--:|--:|--:|--:|
+| Raw pressures, pressure drop, TMP | 99.7% | 3 | 54% | 97% |
+| Blood flow | 99.6% | 3 | 52% | 96% |
+| `pressure_drop_per_blood_flow` | 99.3% | 2 | 46% | 95% |
+| `uf_rate` | 93.1% | 2 | 38% | 87% |
+| `tmp_per_uf_rate` | 92.8% | 2 | 34% | 86% |
+| Ultrafiltrate output | 98.5% | 2 | 2.4% | 94% |
+
+CRRT mode is missing in 52,121 scored rows (16%). Mode is charted less often
+than the machine items.
+
+Last-value medians on scored rows:
+
+- pressure drop 67 mmHg (charted 229248, all rows: 42);
+- TMP 97 mmHg (charted 229247, all rows: 81);
+- UF rate 3,550 ml/hr;
+- pressure drop per blood flow 0.40 mmHg/(ml/min);
+- TMP per UF rate 0.028 mmHg/(ml/hr).
+
+**Where it applies.** Plan Parts 6.4 and 7. `config/config.yaml →
+features.machine_signals`, `features.crrt_mode_itemid`. Columns are defined
+in `docs/data_dictionary.md`, "`machine_features`".
+
 ## 2026-10-03 — Plausibility bounds for the CRRT machine items
 
 **Decision.** `features.plausibility_bounds` now bounds the 16 numeric

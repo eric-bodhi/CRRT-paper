@@ -63,6 +63,8 @@ REQUIRED_KEYS = [
     "features.plausibility_bounds",
     "features.pressure_clip_margin_mmhg",
     "features.pressure_clip_itemids",
+    "features.machine_signals",
+    "features.crrt_mode_itemid",
     "evaluation.alert_budget_alerts",
     "evaluation.alert_budget_hours",
     "paths.mimic_dir",
@@ -113,6 +115,13 @@ def test_plausibility_bounds_are_ordered_and_reviewed(config):
     for itemid, (low, high) in config["features"]["plausibility_bounds"].items():
         assert low < high, itemid
         assert reviewed[itemid]["verdict"] == "include", itemid
+
+
+def test_machine_signals_are_bounded(config):
+    """Every machine signal is read through its plausibility bound (Part 7);
+    an item without one would reach the features uncleaned."""
+    features = config["features"]
+    assert set(features["machine_signals"].values()) <= set(features["plausibility_bounds"])
 
 
 def test_clipped_pressures_are_bounded(config):
