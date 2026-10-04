@@ -279,6 +279,10 @@ outcomes:
     # documented Clotted only, which leaves nurse-charted Clots Increasing
     # free to be a feature and the comparator rule (Part 8.1). Sensitivity:
     # add clots_increasing. Locked 2026-10-02 (docs/decisions.md).
+    # In the sensitivity analysis, Clots Increasing charted up to
+    # windows_hours.clots_increasing_at_end before the end IS the event, so
+    # no feature may read it and the nurse-observation comparator is
+    # undefined there (decisions.md 2026-10-04, "Sensitivity analyses").
     event_classes_primary: [clotted]
     event_classes_sensitivity: [clotted, clots_increasing]
     # Circuits that end in death can never become events; they are censored

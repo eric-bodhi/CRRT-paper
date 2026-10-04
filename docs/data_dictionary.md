@@ -379,3 +379,28 @@ Known misclassification in `anticoag_class` (scored rows before 2020, where
 `inputevents` is complete): 18.6% of `none` rows have a 225152 heparin
 infusion running and 4.9% argatroban or bivalirudin. 7.4% of `citrate` rows
 have 225152 heparin running.
+
+## Sensitivity analysis schemas
+
+Built by `uv run python -m crrt.sensitivity` (stage 6 of `run_all.sh`).
+Decision: `docs/decisions.md` 2026-10-04, "Sensitivity analyses". Each
+analysis is the primary config with one key set to its `*_sensitivity`
+value, built into a schema of that name. Its tables have the columns and
+rules of the `main` tables of the same name.
+
+| Schema | Changed key | Tables built |
+|---|---|---|
+| `horizon_<h>h` | `prediction.horizon_hours` | `circuit_failure_labels` |
+| `blanking_<m>min` | `prediction.blanking_minutes` | `circuit_failure_labels` |
+| `event_clotted_clots_increasing` | `outcomes.circuit_failure.event_classes_primary` | `circuit_failure_labels` |
+| `unclear_exclude` | `outcomes.circuit_failure.unclear_handling_primary` | `circuit_failure_labels` |
+| `phosphate_below_1_5` | `outcomes.hypophosphatemia.moderate_mg_dl` | `hypophos_labels` |
+| `repletion_<handling>` | `outcomes.hypophosphatemia.repletion_handling_primary` | `hypophos_labels` |
+| `max_downtime_<h>h` | `circuits.max_downtime_hours` | `crrt_circuits` through `anticoag_features` |
+| `segment_gap_<h>h` | `sessionization.gap_hours` | `crrt_circuits` through `anticoag_features` |
+
+- A label analysis has the primary's grid (checked when it is built), so
+  it joins `main.machine_features` and `main.anticoag_features` on
+  (`circuit_id`, `pred_time`).
+- A circuit analysis renumbers `circuit_id`. Join its tables only to tables
+  in the same schema.

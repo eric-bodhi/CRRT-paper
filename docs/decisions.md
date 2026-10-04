@@ -2,6 +2,86 @@
 
 Every judgment call, with its date (plan Part 14). Newest first.
 
+## 2026-10-04 — Sensitivity analyses
+
+**Decision.** `crrt.sensitivity` builds every sensitivity analysis in the
+config. It is stage 6 of `run_all.sh`. Before it, the `*_sensitivity` keys
+were specified but read by nothing except a test that they exist. The
+repletion results of 2026-10-03, which the authors confirmed for the
+paper, had been computed outside `run_all.sh`. They are now reproduced
+exactly: censor 25,703 / 163,674, ignore 28,345 / 183,119, composite
+45,372 / 183,343, with the same stays and by-era prevalence.
+
+**How.** Each analysis is the primary config with one key changed. It is
+built into a schema named after it, e.g. `horizon_12h`, in the same
+database. While it builds, unqualified names resolve to that schema and then
+to `main`. The stage SQL runs unchanged, and `main` is never written. It
+takes about 11 minutes and 1.6 GB.
+
+- **Label analyses**, which rebuild one label table: horizon 3 / 12 h,
+  blanking 60 min, event `clotted` + `clots_increasing`, undocumented ends
+  excluded, phosphate < 1.5, repletion `ignore` / `composite`. They share
+  `main`'s circuits, cohort and features. The build fails if a label table's
+  grid differs from the primary's, because the features join on it.
+- **Circuit analyses**, which rebuild stages 2–5: maximum downtime 4 / 12 h,
+  segment gap 1 / 4 h. `circuit_id` is a row number, so it names a different
+  circuit in each of these schemas. Their tables must never be joined across
+  schemas.
+- **Handled elsewhere**: the same-admission ICD chronic dialysis flag is a
+  column of `crrt_cohort`. Excluding chronic dialysis is a row filter at
+  model fitting.
+
+A test lists every sensitivity key in the config. A key added without
+being built, or named as handled elsewhere, fails it.
+
+**Results, scored rows** (printed by stage 6):
+
+| Analysis | Circuit failure positive / labelled | Prevalence | Hypophosphatemia positive / labelled | Prevalence |
+|---|--:|--:|--:|--:|
+| primary | 8,639 / 307,493 | 2.8% | 25,703 / 163,674 | 15.7% |
+| horizon 3 h | 4,188 / 312,845 | 1.3% | | |
+| horizon 12 h | 16,435 / 297,506 | 5.5% | | |
+| blanking 60 min | 7,596 / 303,356 | 2.5% | | |
+| + `clots_increasing` | 11,417 / 307,493 | 3.7% | | |
+| undocumented excluded | 8,639 / 272,592 | 3.2% | | |
+| phosphate < 1.5 | | | 10,154 / 213,833 | 4.7% |
+| repletion ignore | | | 28,345 / 183,119 | 15.5% |
+| repletion composite | | | 45,372 / 183,343 | 24.7% |
+| max downtime 4 h | 8,660 / 309,567 | 2.8% | 25,547 / 162,089 | 15.8% |
+| max downtime 12 h | 8,539 / 304,395 | 2.8% | 25,797 / 164,785 | 15.7% |
+| segment gap 1 h | 8,597 / 281,488 | 3.1% | 25,338 / 159,755 | 15.9% |
+| segment gap 4 h | 8,130 / 310,757 | 2.6% | 25,759 / 164,415 | 15.7% |
+
+**For the authors.**
+
+- **The `clots_increasing` event conflicts with its other two roles.** In
+  that analysis, `Clots Increasing` charted up to
+  `windows_hours.clots_increasing_at_end` (3 h) before the end defines the
+  event. Blanking is 30 min, so any feature that reads it leaks the label
+  there. The analysis must drop such a feature, and the nurse-observation
+  comparator (Part 8.1) is undefined in it. No feature reads it yet. This
+  is now noted next to `event_classes_sensitivity` in the config.
+- **Phosphate < 1.5 mostly measures repletion.** 60,464 rows are censored
+  for repletion against 10,154 events. Repletion starts below 2.0, so most
+  orders come before any draw under 1.5. Prevalence in 2020–22 is 2.7%,
+  against 4.6–5.8% before. **Decide** whether this analysis should be
+  reported under the `ignore` handling as well.
+- **A 1 h segment gap tests charting jitter, not the circuit definition.**
+  Machine charting is every 60 min (p90 92 min, feasibility §1), so a 1 h
+  gap cuts ordinary intervals. It makes 13,285 circuits (primary 9,729), and
+  27,249 rows fall in downtime (primary 4,660). Since 2026-10-02 the gap
+  only defines downtime within a circuit, and maximum downtime is the
+  circuit-definition analysis. **Decide** whether the gap analyses (Part
+  4.4) stay.
+- **The shuffled-label control (Part 6.5) runs per analysis.** Each one is
+  a different label or row set. Stage 7 must refit the control for every
+  schema, not only `main`.
+
+**Where it applies.** Plan Parts 4.4, 5, 6.2, 6.5 and 12.
+`src/crrt/sensitivity.py`, `run_all.sh` stage 6, `config/config.yaml`
+(every `*_sensitivity` key), `docs/data_dictionary.md`, "Sensitivity
+analysis schemas".
+
 ## 2026-10-04 — Anticoagulation features
 
 **Decision.** `sql/anticoag_features.sql` builds the anticoagulation feature
