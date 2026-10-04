@@ -406,6 +406,32 @@ features:                                   # Plan Part 7
   pressure_clip_margin_mmhg: 50
   pressure_clip_itemids: [224149, 224150, 224151, 224152]
 
+  # The machine/circuit feature group (Part 7, first bullet), built by
+  # sql/machine_features.sql. Decided 2026-10-03 (docs/decisions.md,
+  # "Machine features"). Signal name: chartevents itemid. Each needs an entry
+  # in plausibility_bounds. The SQL refers to these names to derive
+  # pressure_drop, tmp, uf_rate, pressure_drop_per_blood_flow and
+  # tmp_per_uf_rate. Charted 229247 TMP and 229248 Pressure Drop are left
+  # out: they do not exist before ~2014, so their presence would encode the
+  # era. The derived values cover every era.
+  machine_signals:
+    blood_flow: 224144                    # ml/min
+    access_pressure: 224149               # mmHg
+    filter_pressure: 224150               # mmHg
+    effluent_pressure: 224151             # mmHg
+    return_pressure: 224152               # mmHg
+    # Total replacement, pre- plus post-filter: it is >= 228006 at the same
+    # charttime in 99.2% of rows, and 228006 is a median 12.5% of it.
+    replacement_rate: 224153              # ml/hr
+    post_filter_replacement_rate: 228006  # ml/hr, part of replacement_rate
+    pbp_rate: 228005                      # ml/hr
+    dialysate_rate: 224154                # ml/hr
+    fluid_removal_rate: 224191            # mL per hour, the net UF setting
+    ultrafiltrate_output: 226457          # mL, achieved net removal
+    current_goal: 225183                  # mL, net-balance goal per hour
+  # 227290 CRRT mode, Text. Carried as its last charted value.
+  crrt_mode_itemid: 227290
+
 
 reporting:                                  # Plan Part 1.4
   # Printed counts below this are shown as "<10", in console output and in

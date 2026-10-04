@@ -112,8 +112,8 @@ machine items".
 | Raw circuit pressures 224149, 224150, 224151, 224152 | Exception: a value past a bound by at most the margin is set to the bound (a sensor at its limit). Further out, missing. | `features.pressure_clip_margin_mmhg`, `features.pressure_clip_itemids` |
 
 TMP and pressure drop derived from the raw pressures (feasibility §1) are
-computed from the bounded raw values. Charted 229247 and 229248 are bounded
-on their own. Items without an entry have no bound yet, and no feature may
+computed from the bounded raw values (`machine_features`). Charted 229247 and
+229248 are bounded on their own. Items without an entry have no bound yet, and no feature may
 read their values until they have one.
 
 ## `crrt_cohort`
@@ -244,3 +244,77 @@ model stages read `WHERE scored`.
 | `scored` | boolean | `not_scored_reason` is null. |
 | `label` | boolean | Scored rows only, over (*t*, *t* + `outcomes.hypophosphatemia.horizon_hours`]. Null if `censor_reason` is set. Otherwise true if `first_low_at` is in the window, false if not. With `repletion_handling` = `composite` (a sensitivity analysis), a repletion order in the window before any low draw also makes it true. |
 | `censor_reason` | text | Checked in order: `repletion` (a phosphate order, IV or oral, starts in the window before any low draw; only when `outcomes.hypophosphatemia.repletion_handling_primary` is `censor`. Under `ignore` the row is labelled from the draws alone, under `composite` it is true); `competing_risk` (no low draw in the window, and death in it); `unmeasured` (no phosphate drawn in the window). |
+
+## `machine_features`
+
+The machine/circuit feature group (Part 7, first bullet). One row per
+`circuit_failure_labels` row, scored or not. `hypophos_labels` has the same
+grid, so both outcomes join on (`circuit_id`, `pred_time`). Built by
+`sql/machine_features.sql`, run from `uv run python -m crrt.features`
+(stage 5 of `run_all.sh`). Decision: `docs/decisions.md` 2026-10-03,
+"Machine features".
+
+**Sources.**
+
+| Signal | Table | itemid | Unit |
+|---|---|---|---|
+| `blood_flow` | `chartevents` | 224144 Blood Flow | ml/min |
+| `access_pressure` | `chartevents` | 224149 Access Pressure | mmHg |
+| `filter_pressure` | `chartevents` | 224150 Filter Pressure | mmHg |
+| `effluent_pressure` | `chartevents` | 224151 Effluent Pressure | mmHg |
+| `return_pressure` | `chartevents` | 224152 Return Pressure | mmHg |
+| `replacement_rate` | `chartevents` | 224153 Replacement Rate, total of pre- and post-filter | ml/hr |
+| `post_filter_replacement_rate` | `chartevents` | 228006 Post Filter Replacement Rate, part of 224153 | ml/hr |
+| `pbp_rate` | `chartevents` | 228005 PBP (Prefilter) Replacement Rate | ml/hr |
+| `dialysate_rate` | `chartevents` | 224154 Dialysate Rate | ml/hr |
+| `fluid_removal_rate` | `chartevents` | 224191 Hourly Patient Fluid Removal, the net UF setting | mL per hour |
+| `ultrafiltrate_output` | `chartevents` | 226457 Ultrafiltrate Output, achieved net removal | mL |
+| `current_goal` | `chartevents` | 225183 Current Goal | mL |
+| `crrt_mode_last` | `chartevents` | 227290 CRRT Mode (`value`) | text |
+
+Names and itemids: `features.machine_signals`, `features.crrt_mode_itemid`.
+Charted 229247 TMP and 229248 Pressure Drop are not used (see below).
+
+**Cleaning rules.**
+
+- A value counts at prediction time *t* only if `charttime ≤ t`,
+  `storetime ≤ t` and `charttime ≥ circuit_start`. Values charted on another
+  filter or another stay never enter.
+- `valuenum` passes through `features.plausibility_bounds` first (see
+  "Plausibility bounds" above). An out-of-range value is dropped, not
+  counted as a measurement. The exception is a raw pressure within
+  `features.pressure_clip_margin_mmhg` of a bound, which is set to the bound.
+- No duplicate (`stay_id`, `itemid`, `charttime`) exists for these items in
+  MIMIC-IV 3.1 inside included circuits, so no duplicate rule is applied.
+
+**Derived signals.** Each is computed at a charttime where every component
+is charted, from the bounded values. It is available at the latest
+`storetime` among its components.
+
+| Signal | Definition | Unit |
+|---|---|---|
+| `pressure_drop` | `filter_pressure − return_pressure` | mmHg |
+| `tmp` | `(filter_pressure + return_pressure) / 2 − effluent_pressure` | mmHg |
+| `uf_rate` | `pbp_rate + replacement_rate + fluid_removal_rate`: total ultrafiltration across the membrane | ml/hr |
+| `pressure_drop_per_blood_flow` | `pressure_drop / blood_flow` | mmHg per ml/min |
+| `tmp_per_uf_rate` | `tmp / uf_rate`, missing when `uf_rate` is 0 | mmHg per ml/hr |
+
+The pressure formulas are the Prismaflex manual's. They are not calibrated
+to the charted 229248 / 229247, which sit a constant 27 / 16.5 mmHg below
+them in every era.
+
+**Columns.** `<s>` is any signal above except `crrt_mode_last`, and `<w>` is
+each of `features.window_hours`. A window is the closed interval
+[*t* − *w*, *t*] on `charttime`.
+
+| Column | Type / unit | Definition |
+|---|---|---|
+| `circuit_id`, `pred_time` | | As in `circuit_failure_labels`. |
+| `circuit_hours` | hours | `pred_time − circuit_start`, the circuit's runtime so far. |
+| `crrt_mode_last` | text | The latest-charted CRRT mode in the longest window. Null if none. |
+| `<s>_last` | signal unit | The latest-charted value in the longest window. Null if none. |
+| `<s>_hours_since_last` | hours | `pred_time` − the `charttime` of `<s>_last`. |
+| `<s>_<w>h_n` | count | Values in the window. 0, never null, if none: the measurement-presence flag. |
+| `<s>_<w>h_mean`, `_min`, `_max` | signal unit | Over the window. Null if `n` = 0. |
+| `<s>_<w>h_slope` | signal unit per hour | Least-squares slope on `charttime`. Null if `n` < `features.min_points_for_trend`. |
+| `<s>_<w>h_var` | signal unit² | Sample variance. Null if `n` < `features.min_points_for_trend`. |
