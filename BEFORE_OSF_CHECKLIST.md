@@ -77,7 +77,16 @@ This is the claim a reviewer will hold against the registration.
 
 - [ ] Label adjudication: the ~150-circuit sample, who adjudicates, and the
       kill rule — κ < 0.6 drops circuit failure to secondary and promotes
-      hypophosphatemia (Part 13, week 9).
+      hypophosphatemia (Part 13, week 9). There is no clinical mentor yet,
+      so adjudication follows model development (decision 2026-10-04,
+      "Clinical review waits for a clinical mentor"). The registration says
+      so, names the role (clinical co-investigator, to be named), and
+      states the two safeguards:
+  - [ ] the sample is drawn and frozen with the fixed seed before any
+        model is fit;
+  - [ ] the adjudicator is blinded to model scores and comparator alerts.
+- [ ] Plausibility bounds: data-derived until clinical review; a bound
+      changed after registration is reported as a deviation.
 - [ ] Event-count kill rule: the minimum event count below which the paper
       becomes descriptive epidemiology (Part 13, week 14). Give the number.
 - [ ] Unclear terminations: primary and sensitivity handling
@@ -108,6 +117,10 @@ One line each in the registration, so none reads as post hoc. Current
 - [ ] `event_classes_sensitivity`
 - [ ] `unclear_handling_sensitivity`
 - [ ] `repletion_handling_sensitivity`
+- [ ] `inputevents` anticoagulation (decision 2026-10-04): circuit
+      failure, eras 2008–10 to 2017–19 only, compared with the primary
+      feature set on the same eras and folds. Its config key lands with
+      stage 8, so it is not in the grep below — list it by hand.
 - [ ] Re-run the grep before submitting in case keys were added.
 
 ## 8. Documents to attach
