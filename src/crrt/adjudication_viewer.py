@@ -1,16 +1,23 @@
 """The adjudication viewer and verdict sheet (Part 5.1 step 4).
 
-Runs on the adjudicator's own machine, against their own credentialed copy
-of MIMIC-IV. Under the DUA no row may be sent to them, so the pages are
-built where they are read (docs/decisions.md 2026-10-04, "Adjudication
-viewer"). Everything is written under `paths.adjudication_dir`, inside the
-gitignored data/.
+The pages are built from a credentialed copy of MIMIC-IV. A team member
+builds and exports them, and the adjudicator, who holds their own
+credential, gets them in person on an encrypted drive (docs/decisions.md
+2026-10-04, "Hand the pages to a credentialed adjudicator"; before that,
+"Adjudication viewer"). Everything is written under
+`paths.adjudication_dir`, inside the gitignored data/.
 
   uv run python -m crrt.adjudication_viewer build
       One static HTML page per sampled circuit, in `review_order`, plus the
       practice circuits and two verdict sheets (verdicts.csv,
       practice_verdicts.csv). Refuses to run unless the sample matches
       `adjudication_sample_sha256`. An existing sheet is never overwritten.
+  uv run python -m crrt.adjudication_viewer export
+      Build, then pack the pages with empty verdict sheets into
+      adjudication_pages_<sample>.zip, for handing to a credentialed
+      adjudicator in person (docs/decisions.md 2026-10-04, "Hand the pages
+      to a credentialed adjudicator"). This machine's verdicts and notes
+      are never in it.
   uv run python -m crrt.adjudication_viewer serve
       What the desktop launcher runs (crrt.adjudication_setup). Serves the
       pages on 127.0.0.1 and opens the browser. Each verdict button saves to
@@ -39,6 +46,7 @@ and every value is also in the table below the chart.
 """
 
 import csv
+import io
 import json
 import math
 import os
@@ -47,6 +55,7 @@ import sys
 import threading
 import urllib.request
 import webbrowser
+import zipfile
 from collections import defaultdict
 from datetime import datetime
 from functools import partial
@@ -556,15 +565,44 @@ def read_sheet(path: Path) -> dict[int, list[str]]:
         return {int(r[0]): [r[1], r[2]] for r in list(csv.reader(f))[1:]}
 
 
+def sheet_text(key: str, rows: dict[int, list[str]]) -> str:
+    text = io.StringIO()
+    w = csv.writer(text)
+    w.writerow([key, "verdict", "note"])
+    w.writerows([n, verdict, note] for n, (verdict, note) in sorted(rows.items()))
+    return text.getvalue()
+
+
 def write_sheet(path: Path, key: str, rows: dict[int, list[str]]) -> None:
     """Write the whole sheet to a temporary file, then swap it in, so a
     crash never leaves half a sheet."""
     tmp = path.with_name(path.name + ".tmp")
-    with tmp.open("w", newline="", encoding="utf-8") as f:
-        w = csv.writer(f)
-        w.writerow([key, "verdict", "note"])
-        w.writerows([n, verdict, note] for n, (verdict, note) in sorted(rows.items()))
+    tmp.write_text(sheet_text(key, rows), encoding="utf-8", newline="")
     os.replace(tmp, path)
+
+
+def package_name(cfg: dict[str, Any]) -> str:
+    """The export's file name. It names the sample, so setup on the
+    adjudicator's machine accepts only the package for its own config."""
+    return f"adjudication_pages_{cfg['outcomes']['circuit_failure']['adjudication_sample_sha256'][:12]}.zip"
+
+
+def export(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any], out: Path) -> Path:
+    """Build the pages, then pack them for a credentialed adjudicator
+    (docs/decisions.md 2026-10-04, "Hand the pages to a credentialed
+    adjudicator"). The package holds every page and empty verdict sheets,
+    never this machine's verdicts or notes. It is written next to `out`,
+    inside the gitignored data/."""
+    build(con, cfg, out)
+    package = out.parent / package_name(cfg)
+    with zipfile.ZipFile(package, "w", zipfile.ZIP_DEFLATED) as z:
+        for page in sorted(out.rglob("*.html")):
+            z.write(page, page.relative_to(out).as_posix())
+        for sheet, key in SHEETS.values():
+            z.writestr(sheet, sheet_text(key, {n: ["", ""] for n in read_sheet(out / sheet)}))
+    print(f"wrote {package}\nCopy it to an encrypted USB drive and hand it over in person. "
+          "Never by email, cloud storage or chat (docs/adjudication_guide.md).")
+    return package
 
 
 def sample_size(cfg: dict[str, Any]) -> int:
@@ -762,16 +800,16 @@ def main() -> None:
     cfg = config.load()
     out = config.path(cfg, "adjudication_dir")
     command = sys.argv[1] if len(sys.argv) > 1 else ""
-    if command == "build":
+    if command in ("build", "export"):
         con = duckdb.connect(str(config.path(cfg, "duckdb")), read_only=True)
-        build(con, cfg, out)
+        (build if command == "build" else export)(con, cfg, out)
         con.close()
     elif command == "serve":
         serve(cfg, out, cfg["outcomes"]["circuit_failure"]["adjudication_port"])
     elif command == "check":
         check(cfg, out, sample_size(cfg))
     else:
-        raise SystemExit("usage: python -m crrt.adjudication_viewer build|serve|check")
+        raise SystemExit("usage: python -m crrt.adjudication_viewer build|export|serve|check")
 
 
 if __name__ == "__main__":
