@@ -41,6 +41,10 @@ byline, it is noise a reviewer will read as a provenance question.
   data across the team is not permitted, including via Drive or Dropbox. Share
   *code* through this repo, never data. This also applies to derived extracts,
   row-level values pasted into an issue, and committed notebook cell outputs.
+  One exception (`docs/decisions.md` 2026-10-04, "Hand the pages to a
+  credentialed adjudicator"): the exported adjudication pages may be handed,
+  in person on an encrypted drive, to an adjudicator who holds their own
+  credential and has signed the DUA.
 - Pinned environment with a lockfile (`uv`); fixed random seeds.
 - **`config/config.yaml` holds every threshold and window length. No magic
   numbers in code, ever.** A number typed into a `.py` or `.sql` file is a bug.

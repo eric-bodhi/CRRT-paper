@@ -14,13 +14,15 @@ import re
 import threading
 import urllib.error
 import urllib.request
+import zipfile
 from datetime import datetime, timedelta
 
 import pytest
 
 from crrt import adjudication_viewer, config
 from crrt.adjudication import draw, fingerprint
-from crrt.adjudication_viewer import PRACTICE_SHEET, SHEET, build, check, clock, make_server, send_file
+from crrt.adjudication_viewer import (PRACTICE_SHEET, SHEET, build, check, clock, export, make_server,
+                                      package_name, send_file)
 
 duckdb = pytest.importorskip("duckdb")
 
@@ -333,3 +335,30 @@ def test_a_practice_run_never_writes_the_file_to_send(app):
     for n in sheet(out, PRACTICE_SHEET):
         call(srv, "/api/verdict", {"kind": "practice", "n": n, "verdict": O["adjudication_verdicts"][0]})
     assert not send_file(cfg, out).exists()
+
+
+def test_the_export_holds_every_page_and_empty_sheets_only(built, tmp_path):
+    con, cfg, out = built
+    fill(out)                        # this machine's own answers and notes
+    send = check(cfg, out, N_SAMPLE)
+    exported = tmp_path / "export" / "adjudication"
+    exported.mkdir(parents=True)
+    for name in (SHEET, PRACTICE_SHEET):   # as if this machine had clicked too
+        (exported / name).write_bytes((out / name).read_bytes())
+    package = export(con, cfg, exported)
+    assert package == exported.parent / package_name(cfg)
+    with zipfile.ZipFile(package) as z:
+        names = set(z.namelist())
+        pages = {p.relative_to(exported).as_posix() for p in exported.rglob("*.html")}
+        assert len(pages) > N_SAMPLE and pages == {n for n in names if n.endswith(".html")}
+        assert {SHEET, PRACTICE_SHEET} <= names and send.name not in names
+        for sheet in (SHEET, PRACTICE_SHEET):
+            rows = list(csv.reader(z.read(sheet).decode().splitlines()))
+            assert len(rows) > 1 and all(r[1:] == ["", ""] for r in rows[1:])
+        assert not any(b"charted 250" in z.read(n) for n in names)
+
+
+def test_the_export_refuses_a_sample_that_is_not_the_frozen_one(tmp_path):
+    with pytest.raises(SystemExit, match="does not match"):
+        export(world(), CFG, tmp_path / "adjudication")
+    assert not list(tmp_path.glob("*.zip"))

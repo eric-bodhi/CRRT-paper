@@ -91,14 +91,21 @@ and Linux all work.
 
 **Before the visit.**
 
-- The adjudicator has their own PhysioNet credential (CITI training, then
-  credentialing; outline Parts 1.1–1.3) and has signed the MIMIC-IV 3.1 data
-  use agreement on PhysioNet. Nobody else's login may be used, and nobody
-  may send them the data.
-- At least 35 GB free on the disk: about 8 GB of downloads, then about 18 GB
-  of database files built from them.
-- Allow an afternoon, with the computer plugged in. The download and the
-  database build are slow, and the build runs once.
+- Confirm the adjudicator has their own PhysioNet credential (CITI
+  training, then credentialing; outline Parts 1.1–1.3) and has signed the
+  MIMIC-IV 3.1 data use agreement: their PhysioNet account shows access to
+  the MIMIC-IV files. The pages may go only to someone who has both
+  (`docs/decisions.md` 2026-10-04, "Hand the pages to a credentialed
+  adjudicator").
+- On your own credentialed machine, run
+  `uv run python -m crrt.adjudication_viewer export`. It rebuilds the pages,
+  checks that the sample is the frozen one, and writes
+  `data/adjudication_pages_<sample>.zip`, about 1 MB, with empty verdict
+  sheets. Your own clicks and notes are never in it.
+- Copy that file to an encrypted USB drive: BitLocker To Go on Windows, or
+  a drive erased as encrypted in Disk Utility on a Mac. Never send it by
+  email, cloud storage, chat or any other online service.
+- About 1 GB free on the adjudicator's disk is enough.
 
 **Steps.**
 
@@ -111,18 +118,26 @@ and Linux all work.
    Download ZIP. Not on the Desktop, in Documents, or in OneDrive, Dropbox,
    iCloud or Google Drive: those are often synced to a cloud, which the DUA
    forbids. Setup refuses to run in a synced folder.
-3. **Run setup.** Windows: double-click `adjudicate.bat`. Mac or Linux: run
-   `./adjudicate.sh` in Terminal.
-4. **The adjudicator types their PhysioNet username and password** when
-   asked. They are used for this download only and never saved. Only the
-   files the pipeline reads are downloaded, and each is checked against
-   PhysioNet's checksums. If the download stops, run setup again; it
-   carries on where it stopped.
-5. Setup then builds the database and the pages. It stops if the sample is
-   not the frozen one. Last, it puts **Adjudicate** on the desktop.
+3. **Copy `adjudication_pages_<sample>.zip`** from the USB drive into that
+   folder.
+4. **Run setup.** Windows: double-click `adjudicate.bat`. Mac or Linux: run
+   `./adjudicate.sh` in Terminal. It unpacks the pages and puts
+   **Adjudicate** on the desktop. The first run takes a minute or two while
+   it installs Python packages.
+5. **Delete the zip** from the folder and from the USB drive.
 6. **Check it together.** Double-click **Adjudicate**, open a practice
    circuit, click a button, and see **Saved ✓**. Reload the page: the
    button is still highlighted.
+
+To update the pages later, export again, copy the new zip into the folder
+and rerun setup. It replaces the pages and keeps every answer.
+
+**Without a package.** If setup finds no package and no pages, it offers to
+build the pages on this computer instead. The adjudicator types their own
+PhysioNet username and password, which are used for this download only and
+never saved. Only the files the pipeline reads are downloaded, each checked
+against PhysioNet's checksums, and a stopped download carries on when setup
+is run again. This takes hours and needs at least 35 GB free.
 
 **If something goes wrong.** Setup and the Adjudicate window print what
 stopped them. Send that text, and nothing from any page, to the study team.
