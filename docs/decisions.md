@@ -2,6 +2,144 @@
 
 Every judgment call, with its date (plan Part 14). Newest first.
 
+## 2026-10-04 — Kappa rules for adjudication
+
+**Decision.** This settles the three questions left open by "Adjudication
+sample".
+
+1. **The kill rule reads the point estimate.** Circuit failure drops to
+   secondary if the frame-weighted κ of the primary label is below
+   `adjudication_min_kappa` (0.6). The 95% CI (stratified bootstrap over
+   patients) is reported next to it but does not decide.
+2. **An adjudicator's "unclear" counts as not a clot.** κ compares
+   "clotting" against everything else. The share of unclear verdicts is
+   reported for each stratum, with κ recomputed without them as a
+   secondary number.
+3. **κ is reported for the sensitivity label too, but only the primary
+   label's κ decides.** Also reported, all weighted to the frame: κ for
+   `clotted` + `clots_increasing`; the PPV of `clotted`; the share of
+   `undocumented` and of `clots_increasing` circuits the adjudicator calls
+   clots; and agreement in each stratum. If the sensitivity label agrees
+   better, it does not replace the primary label.
+
+The kill rule reads the primary adjudicator's verdicts on all 150
+circuits. A second adjudicator's subset gives the agreement between the two
+raters and decides nothing.
+
+**Why.**
+
+- **Point estimate.** With 150 circuits the CI is about ±0.12 wide.
+  - Killing only when the whole CI is below 0.6 would keep circuit failure
+    as primary with a κ near 0.48. A reviewer would not accept that, and it
+    is not what protocol v0.1 states ("proceeds only if κ ≥ 0.6").
+  - Requiring the whole CI to be above 0.6 needs a κ near 0.72. With the
+    expected κ of 0.64, that would kill circuit failure most of the time,
+    unless the sample were several times larger than one adjudicator can
+    review.
+  - The point estimate is how a reader will judge it. It fires on noise
+    about 1 time in 5 if the true κ is 0.64. That error is cheap: both
+    outcomes are modelled anyway, so a false kill changes the framing and
+    no work is lost.
+- **Unclear as not a clot.** This matches how the label itself works: an
+  event is a documented clot, and an end with no evidence is a non-event
+  (`unclear_handling_primary: non_event`, 2026-10-02).
+  - Dropping unclear verdicts would drop exactly the hardest circuits and
+    inflate κ.
+  - On a documented clot, an unclear verdict now counts against the rule,
+    which is the conservative direction for the PPV. On an `undocumented`
+    end it agrees with the label. The per-stratum unclear share and the κ
+    without unclear verdicts show how much this choice moves the result.
+- **Primary label decides.** Switching to whichever label adjudicates
+  better, after seeing the result, is a forking path. The reasons the
+  primary leaves out `clots_increasing` still hold: it is the
+  nurse-observation comparator and a candidate feature (2026-10-02).
+
+**When.** The config keys for these rules land with the code that computes
+κ, as for the `inputevents` analysis. `adjudication_min_kappa` is already
+in the config.
+
+**Where it applies.** Plan Parts 5.1 and 13. `config/config.yaml →
+outcomes.circuit_failure.adjudication_min_kappa`. `BEFORE_OSF_CHECKLIST.md`
+§5.
+
+## 2026-10-04 — Adjudication sample
+
+**Decision.** The ~150 circuits for label adjudication (Part 5.1 step 4)
+are a stratified sample by `termination_class`, not a simple random one.
+This settles feasibility §6 item 4.
+
+| Stratum | Classes | Circuits |
+|---|---|--:|
+| `clotted` | `clotted` (the primary event) | 40 |
+| `clots_increasing` | `clots_increasing` | 25 |
+| `undocumented` | `undocumented` | 45 |
+| `other_non_event` | `reached_limit`, `procedure_or_line_change`, `icu_discharge`, `crrt_ended`, `stopped_then_restarted` | 40 |
+
+- **The frame** is every included cohort circuit with a label. `death` is
+  censored (Part 5.3), so it has no label to check and is in no stratum.
+  A test fails if a class in `sql/crrt_circuits.sql` is neither in a
+  stratum nor censored.
+- **Within a stratum**, circuits are drawn at random, so
+  `other_non_event` is proportional across its five classes.
+- **Kappa is weighted back to the frame.** Each circuit counts as its
+  stratum's frame size divided by the circuits drawn. The CI comes from a
+  bootstrap within strata that resamples patients (Part 4.3).
+- **Drawn once** with `reproducibility.random_seed` and frozen before any
+  model is fit (2026-10-04, "Clinical review waits for a clinical
+  mentor"). The adjudicator is not told the strata or the allocation.
+- A second adjudicator, if there is one, reviews a subset drawn by the
+  same strata.
+
+**Drawn 2026-10-04**, before any model was fit, by `crrt.adjudication`
+(stage 3b) on MIMIC-IV 3.1. `crrt_circuits` and `crrt_cohort` were
+rebuilt first; `docs/strobe.md` did not change.
+
+| Stratum | Frame | Drawn | Patients | Weight |
+|---|--:|--:|--:|--:|
+| `clotted` | 1,674 | 40 | 38 | 41.85 |
+| `clots_increasing` | 543 | 25 | 25 | 21.72 |
+| `undocumented` | 1,221 | 45 | 44 | 27.13 |
+| `other_non_event` | 4,099 | 40 | 38 | 102.47 |
+| total | 7,537 | 150 | 137 | |
+
+Fingerprint (SHA-256 of the sorted `stay_id,circuit_start` lines):
+`a1d751af9f20e8cf6579c1ea290f062bd56c0b8ad022dcb18663885dffc99d24`.
+Stage 3b prints it on every run. A rerun that prints anything else means
+the circuits or the cohort changed: the frozen sample is gone, and the
+change is a deviation to log and report.
+
+**Why.** Simulated on the feasibility §2.3 class counts, 4,000 draws each,
+under planning assumptions for how often an adjudicator calls a circuit a
+clot: `clotted` 0.90, `clots_increasing` 0.60, `undocumented` 0.25 (the
+§2.4 mixture estimate), `stopped_then_restarted` 0.15,
+`procedure_or_line_change` 0.10, others 0.03–0.05.
+
+| Design | SD of κ | SD of hidden-clot share in `undocumented` | SD of PPV of `clotted` |
+|---|--:|--:|--:|
+| random 150 | 0.070 | 0.091 | 0.053 |
+| 50 / 25 / 50 / 25 | 0.065 | 0.061 | 0.043 |
+| **40 / 25 / 45 / 40** | **0.059** | **0.065** | **0.048** |
+
+- A random sample is worse on every quantity. It holds about 30
+  `clotted` and 20 `undocumented` circuits.
+- Across reasonable allocations the SD of κ is flat (0.055–0.059 on a
+  grid), so the allocation was chosen for the per-class estimates. It
+  measures the PPV of the label and the share of hidden clots among
+  `undocumented` ends, which is the label's main known error (§2.4).
+
+**For the authors, before pre-registration.** Under the same assumptions,
+the population κ of the primary label is about **0.64**, close to
+`adjudication_min_kappa` (0.6). The primary label leaves out
+`clots_increasing` and keeps `undocumented` as non-events (2026-10-02), and
+an adjudicator will call many of those circuits clots. On sampling noise
+alone, the kill rule fires in about 1 run in 5 under every design. Three
+things must be fixed in the registration. They are settled in the entry
+above, "Kappa rules for adjudication".
+
+**Where it applies.** Plan Parts 5.1 and 13. `config/config.yaml →
+outcomes.circuit_failure.adjudication_strata`, which replaces
+`adjudication_sample_size`. `BEFORE_OSF_CHECKLIST.md` §5.
+
 ## 2026-10-04 — Clinical review waits for a clinical mentor
 
 **Decision.** The project has a faculty mentor but no nephrology or other

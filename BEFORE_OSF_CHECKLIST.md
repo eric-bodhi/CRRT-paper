@@ -85,6 +85,22 @@ This is the claim a reviewer will hold against the registration.
   - [ ] the sample is drawn and frozen with the fixed seed before any
         model is fit;
   - [ ] the adjudicator is blinded to model scores and comparator alerts.
+- [x] Adjudication sample: stratified, 40 / 25 / 45 / 40 by ending class,
+      κ weighted back to the frame (decision 2026-10-04, "Adjudication
+      sample"). Drawn and frozen 2026-10-04.
+- [ ] Quote the sample's fingerprint
+      (`a1d751af9f20e8cf6579c1ea290f062bd56c0b8ad022dcb18663885dffc99d24`) in
+      the registration, and check that stage 3b still prints it.
+- [x] κ rules (decision 2026-10-04, "Kappa rules for adjudication"). Copy
+      them into the registration:
+  - the kill rule reads the point estimate of the frame-weighted κ for the
+    primary label, from the primary adjudicator; the CI is reported, and
+    does not decide;
+  - an "unclear" verdict counts as not a clot; the unclear share per
+    stratum and κ without them are reported as secondary numbers;
+  - κ for the sensitivity label, the PPV of `clotted` and the clot share
+    among `undocumented` and `clots_increasing` are reported, and none of
+    them can replace the primary label.
 - [ ] Plausibility bounds: data-derived until clinical review; a bound
       changed after registration is reported as a deviation.
 - [ ] Event-count kill rule: the minimum event count below which the paper
