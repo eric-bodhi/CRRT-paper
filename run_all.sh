@@ -10,7 +10,7 @@
 # Usage: ./run_all.sh
 #
 # Implemented so far: database build, the itemid evidence sweep, circuits, the
-# cohort with its STROBE flow, the outcome labels, the machine and
+# cohort with its STROBE flow, the adjudication sample, the outcome labels, the machine and
 # anticoagulation features, and the sensitivity analyses.
 
 set -euo pipefail
@@ -33,6 +33,12 @@ uv run python -m crrt.circuits
 # 3. Cohort (Parts 4.1, 4.2, 4.6): every circuit with its exclusion flags and
 #    the chronic dialysis flag -> table crrt_cohort; STROBE flow -> docs/strobe.md.
 uv run python -m crrt.cohort
+
+# 3b. Label adjudication sample (Part 5.1 step 4): stratified by how each
+#     circuit ended, drawn with the fixed seed -> table adjudication_sample.
+#     Frozen before any model is fit; prints aggregate counts and the
+#     sample's fingerprint, which must match docs/decisions.md.
+uv run python -m crrt.adjudication
 
 # 4. Outcome labels (Parts 5, 6.1-6.3): one row per circuit per prediction
 #    time with its label -> tables circuit_failure_labels and hypophos_labels.
