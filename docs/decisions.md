@@ -2,7 +2,64 @@
 
 Every judgment call, with its date (plan Part 14). Newest first.
 
+## 2026-10-04 — Hand the pages to a credentialed adjudicator
+
+**Decision.** The authors' position is that handing MIMIC-IV-derived files
+to someone who holds their own PhysioNet credential, and has signed the
+MIMIC-IV DUA, does not breach the DUA. It is applied to one thing, the
+adjudication pages:
+
+- A team member runs `uv run python -m crrt.adjudication_viewer export`. It
+  builds the pages, running the frozen-sample check, and packs them with
+  empty verdict sheets into `adjudication_pages_<sample>.zip`. That file
+  is 1.2 MB, against about 8 GB of download.
+- The adjudicator's setup unpacks it. They download nothing and build no
+  database.
+
+This supersedes "each adjudicator downloads their own copy" in "Adjudication
+viewer", below.
+
+Conditions:
+
+- Before handing it over, confirm the adjudicator's own credential and
+  signed MIMIC-IV 3.1 DUA: their PhysioNet account shows access to the
+  files.
+- Hand it over in person, on an encrypted USB drive. Never by email, cloud
+  storage, chat or any other online service: PhysioNet's 24 Sept 2025 post
+  rules those out separately.
+- The package holds only the blinded pages and empty sheets, never another
+  machine's verdicts or notes. Tests check this.
+- On the adjudicator's machine the pages fall under the same data rules
+  as their own download would (`docs/adjudication_guide.md`).
+
+**Why.**
+
+- The DUA says the licensee "will not share access to PhysioNet restricted
+  data with anyone else." The authors read someone who already holds that
+  access, under the same DUA, as not someone access is shared with. The
+  package gives them nothing they could not download themselves.
+- On a Mac test the same day, downloading MIMIC-IV and building the
+  database for 150 circuits was too slow for a clinician's laptop. Setup
+  from the package takes about a minute.
+- Download-and-build stays in setup as the fallback when there is no
+  package.
+
+**For the authors.**
+
+- PhysioNet has not confirmed this reading. Consider asking them, for the
+  record.
+- CLAUDE.md's no-sharing rule now names this one exception. Wider sharing,
+  of raw data or any other extract, would be a separate decision.
+
+**Where it applies.** Plan Parts 1.4, 2.4 and 5.1. `crrt.adjudication_viewer
+export`, `crrt.adjudication_setup`, `adjudicate.sh`, `adjudicate.bat`,
+`.gitignore`, `docs/adjudication_guide.md`, CLAUDE.md.
+
 ## 2026-10-04 — Adjudication viewer
+
+*Partly superseded the same day by "Hand the pages to a credentialed
+adjudicator", above: a team member now builds the pages and hands them over.
+Download-and-build stays as setup's fallback.*
 
 **Decision.** The adjudicator reads each sampled circuit in pages built
 **on their own machine, from their own credentialed MIMIC-IV copy**, and

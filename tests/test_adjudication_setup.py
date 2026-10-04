@@ -6,13 +6,14 @@ plays PhysioNet, with Basic auth and HTTP Range, serving made-up bytes.
 
 import hashlib
 import threading
+import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
 
 from crrt import build_db
-from crrt.adjudication_setup import basic, fetch, launcher, needed, sums, synced
+from crrt.adjudication_setup import basic, fetch, launcher, needed, sums, synced, unpack
 
 BLOB = bytes(range(256)) * 4096
 DIGEST = hashlib.sha256(BLOB).hexdigest()
@@ -117,3 +118,22 @@ def test_the_mac_and_linux_launchers_run_the_app_from_the_repo(platform, name):
     repo, uv = Path("/Users/ana/crrt"), "/Users/ana/.local/bin/uv"
     got, text = launcher(platform, repo, uv, Path("/Users/ana"))
     assert got == name and str(repo) in text and f'"{uv}" run python -m crrt.adjudication_viewer serve' in text
+
+
+def test_unpacking_replaces_the_pages_and_keeps_the_answers(tmp_path):
+    package = tmp_path / "adjudication_pages_test.zip"
+    with zipfile.ZipFile(package, "w") as z:
+        z.writestr("index.html", "new list")
+        z.writestr("practice/practice_1.html", "practice page")
+        z.writestr("verdicts.csv", "review_order,verdict,note\r\n1,,\r\n")
+        z.writestr("practice_verdicts.csv", "practice_order,verdict,note\r\n1,,\r\n")
+    out = tmp_path / "adjudication"
+    out.mkdir()
+    (out / "index.html").write_text("old list")
+    answered = "review_order,verdict,note\r\n1,clotting,checked\r\n"
+    (out / "verdicts.csv").write_bytes(answered.encode())
+    unpack(package, out)
+    assert (out / "index.html").read_text() == "new list"
+    assert (out / "practice" / "practice_1.html").exists()
+    assert (out / "verdicts.csv").read_bytes() == answered.encode()  # answers kept
+    assert (out / "practice_verdicts.csv").exists()            # missing sheet added

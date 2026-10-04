@@ -2,6 +2,9 @@
 # PhysioNet DUA (plan Part 1.4): each user credentials and downloads
 # individually. Code is shared via this repo; data never is.
 data/
+# The exported adjudication pages: row-level, and copied into the repo folder
+# on the adjudicator's machine (docs/adjudication_guide.md).
+adjudication_pages_*.zip
 *.csv
 *.csv.gz
 *.parquet
