@@ -2,6 +2,92 @@
 
 Every judgment call, with its date (plan Part 14). Newest first.
 
+## 2026-10-04 — Clinical review waits for a clinical mentor
+
+**Decision.** The project has a faculty mentor but no nephrology or other
+clinical mentor yet. Every task that needs clinical judgment is scheduled as
+late as it can go. Until then the pipeline runs on the data-derived choices
+already logged.
+
+- **Plausibility bounds** (machine items 2026-10-03, calcium 2026-10-04).
+  The data-derived bounds stand. Clinical review happens before the final
+  model fit. A bound changed after pre-registration is reported as a
+  deviation.
+- **Clinical plausibility review of the final feature list** (Part 14).
+  Last, before the manuscript.
+- **Label adjudication** (Part 5.1 step 4; `adjudication_sample_size`,
+  `adjudication_min_kappa`). After model development, before any
+  circuit-failure result is written up. The week-9 kill checkpoint
+  (Part 13) moves with it.
+
+**What makes late adjudication safe.**
+
+- The sample is drawn and frozen with `reproducibility.random_seed`
+  before any model is fit, so model output cannot steer which circuits
+  are adjudicated.
+- The adjudicator is blinded to model scores and comparator alerts.
+- Both outcomes are modelled regardless. A κ below the threshold found
+  late changes the framing (circuit failure to secondary), not the work.
+- The OSF registration says adjudication follows model development and is
+  done by a clinical co-investigator to be named.
+
+**What cannot wait.** The adjudicator needs their own PhysioNet credential
+to look at rows (feasibility §6, item 4). CITI training and credentialing
+take weeks. Start it as soon as someone is named, or it becomes the
+critical path.
+
+The faculty mentor covers the monthly checkpoint (Part 14).
+
+**Where it applies.** Plan Parts 5.1, 13 and 14. `config/config.yaml →
+outcomes.circuit_failure` adjudication keys and `plausibility_bounds`.
+`BEFORE_OSF_CHECKLIST.md` §5.
+
+## 2026-10-04 — `inputevents` anticoagulation sensitivity analysis
+
+**Decision.** Add it. This closes the question "Anticoagulation features"
+left to the authors. One analysis, circuit failure only:
+
+- **Features:** the primary set plus, from `inputevents`, CRRT calcium
+  (227525), ACD-A (227529, 227528), heparin infusion (225152), argatroban
+  (225147) and bivalirudin (225148), all already included by the itemid
+  review. `anticoag_class` is rebuilt from both sources, with a direct
+  thrombin inhibitor class added.
+- **The `storetime` rule still holds** (Part 6.4). A bag or rate segment
+  counts from its `storetime`. The running ACD-A bag is then mostly
+  invisible, so this measures what the stored record adds. It does not
+  measure what the drug does.
+- **Eras 2008–10 to 2017–19 only.** Patient-grouped nested CV within those
+  eras, on the same folds as the primary feature set refit on the same
+  eras. The difference is then the features alone, not the eras. No
+  temporal validation: in 2020–22 a missing row would read as "not given".
+- The anticoagulation subgroup (Part 10) is also reported with the
+  rebuilt class, next to the primary's contaminated `none`.
+
+**Why.**
+
+- Part 7 lists the calcium replacement rate, and the primary does not
+  have it. A reviewer will ask what leaving it out cost. This answers with
+  a number instead of an argument.
+- Either result is reportable. A small difference means the primary
+  choice holds, and the model runs on what is recorded in every era. A
+  large one quantifies a limitation of the 2020–22 documentation that the
+  temporal split cannot show.
+- It tests the two weaknesses the primary can only name: `none` rows with
+  a 225152 heparin infusion running (18.6% before 2020) and the 241 direct
+  thrombin inhibitor circuits.
+- Circuit failure only. Anticoagulation is the clotting mechanism. The
+  drivers Part 3.2 names for hypophosphatemia are solution phosphate
+  content and dialysis intensity, not anticoagulation.
+
+**When.** With the model stage (8), not on the feature branch. It changes
+the feature set and an era filter at fit time and rebuilds no label or
+circuit table. Its config key comes with its code, because a
+`*_sensitivity` key that nothing builds fails `tests/test_sensitivity.py`.
+It is pre-registered now (`BEFORE_OSF_CHECKLIST.md` §7).
+
+**Where it applies.** Plan Parts 6.4, 7 and 10. Decision "Anticoagulation
+features" (2026-10-04).
+
 ## 2026-10-04 — Sensitivity analyses
 
 **Decision.** `crrt.sensitivity` builds every sensitivity analysis in the
