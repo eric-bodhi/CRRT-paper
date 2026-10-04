@@ -13,6 +13,10 @@ circuits' (stay_id, circuit_start), which do not depend on row numbering. A
 rerun on the same data reproduces the sample, and a matching fingerprint
 proves it. A different fingerprint means the sample moved and must be logged.
 
+`adjudication_practice` holds a few more circuits per stratum, drawn after
+the sample from what it left, for the calibration session; their verdicts
+are never counted.
+
 `review_order` shuffles the strata together, so a circuit's position does
 not reveal its stratum. `stratum` and `termination_class` are for the
 analysis only; nothing shown to the adjudicator may include them. `weight`
@@ -36,10 +40,13 @@ from crrt.report import count
 
 
 def draw(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
-    """Build `adjudication_sample` from crrt_circuits and crrt_cohort."""
-    strata = cfg["outcomes"]["circuit_failure"]["adjudication_strata"]
+    """Build `adjudication_sample` and `adjudication_practice` from
+    crrt_circuits and crrt_cohort."""
+    cf = cfg["outcomes"]["circuit_failure"]
+    strata = cf["adjudication_strata"]
     rng = np.random.default_rng(cfg["reproducibility"]["random_seed"])
     drawn: list[tuple] = []
+    left: dict[str, list[int]] = {}
     for name, s in strata.items():
         # Sorted, so the same seed picks the same circuits on any machine.
         frame = [r[0] for r in con.execute(
@@ -54,7 +61,16 @@ def draw(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
             raise ValueError(f"stratum {name}: {n} circuits requested, and the frame is smaller")
         picked = sorted(rng.choice(len(frame), size=n, replace=False))
         drawn += [(frame[i], name, len(frame), n) for i in picked]
+        chosen = set(picked)
+        left[name] = [c for i, c in enumerate(frame) if i not in chosen]
     order = rng.permutation(len(drawn)) + 1
+
+    # Practice circuits come from what the sample left, and only after it is
+    # drawn: the generator reaches them last, so they cannot move the sample.
+    per = cf["adjudication_practice_per_stratum"]
+    practice = [(int(c), name) for name, frame in left.items()
+                for c in rng.choice(frame, size=per, replace=False)]
+    practice_order = rng.permutation(len(practice)) + 1
 
     con.execute("CREATE OR REPLACE TEMP TABLE adjudication_drawn (circuit_id BIGINT, "
                 "stratum VARCHAR, frame_circuits INTEGER, drawn_circuits INTEGER, "
@@ -70,13 +86,23 @@ def draw(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
         "FROM adjudication_drawn AS d JOIN crrt_circuits AS c USING (circuit_id) "
         "ORDER BY d.review_order"
     )
+    con.execute("CREATE OR REPLACE TEMP TABLE adjudication_practice_drawn "
+                "(circuit_id BIGINT, stratum VARCHAR, practice_order INTEGER)")
+    con.executemany("INSERT INTO adjudication_practice_drawn VALUES (?, ?, ?)",
+                    [(*p, int(o)) for p, o in zip(practice, practice_order)])
+    con.execute(
+        "CREATE OR REPLACE TABLE adjudication_practice AS "
+        "SELECT d.practice_order, c.circuit_id, c.subject_id, c.stay_id, "
+        "       c.circuit_start, c.circuit_end, d.stratum, c.termination_class "
+        "FROM adjudication_practice_drawn AS d JOIN crrt_circuits AS c USING (circuit_id) "
+        "ORDER BY d.practice_order"
+    )
 
 
-def fingerprint(con: duckdb.DuckDBPyConnection) -> str:
+def fingerprint(con: duckdb.DuckDBPyConnection, table: str = "adjudication_sample") -> str:
     """SHA-256 over the sampled (stay_id, circuit_start), in a fixed order."""
     rows = con.execute(
-        "SELECT stay_id, circuit_start FROM adjudication_sample "
-        "ORDER BY stay_id, circuit_start"
+        f"SELECT stay_id, circuit_start FROM {table} ORDER BY stay_id, circuit_start"
     ).fetchall()
     text = "\n".join(f"{stay},{start.isoformat()}" for stay, start in rows)
     return hashlib.sha256(text.encode()).hexdigest()
@@ -97,7 +123,14 @@ def summarize(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
         "SELECT count(*), count(DISTINCT subject_id) FROM adjudication_sample"
     ).fetchone()
     print(f"{'total':18s} {'':>7s} {count(total, small):>6s} {count(patients, small):>9s}")
-    print(f"\nfingerprint (sha256 of stay_id, circuit_start): {fingerprint(con)}")
+    sha = fingerprint(con)
+    frozen = cfg["outcomes"]["circuit_failure"]["adjudication_sample_sha256"]
+    print(f"\nfingerprint (sha256 of stay_id, circuit_start): {sha}")
+    print("matches the frozen sample" if sha == frozen else
+          "DOES NOT MATCH the frozen sample in the config: the circuits or the "
+          "cohort changed. Log it as a deviation before adjudicating.")
+    print(f"practice circuits: {count(con.execute('SELECT count(*) FROM adjudication_practice').fetchone()[0], small)}, "
+          f"fingerprint {fingerprint(con, 'adjudication_practice')}")
 
 
 def main() -> None:

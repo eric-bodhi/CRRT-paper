@@ -122,3 +122,19 @@ def test_a_stratum_larger_than_its_frame_fails():
     con = world(extra_per_stratum=-1)
     with pytest.raises(ValueError, match="frame is smaller"):
         draw(con, CFG)
+
+
+def test_practice_circuits_are_outside_the_sample_one_set_per_stratum(drawn):
+    sampled = {r["circuit_id"] for r in sample(drawn)}
+    practice = drawn.execute("SELECT circuit_id, stratum FROM adjudication_practice").fetchall()
+    assert not sampled & {c for c, _ in practice}
+    per = O["adjudication_practice_per_stratum"]
+    assert sorted(s for _, s in practice) == sorted(name for name in STRATA for _ in range(per))
+
+
+def test_drawing_practice_circuits_does_not_move_the_sample(drawn):
+    cfg = copy.deepcopy(CFG)
+    cfg["outcomes"]["circuit_failure"]["adjudication_practice_per_stratum"] += 2
+    other = world()
+    draw(other, cfg)
+    assert sample(other) == sample(drawn)

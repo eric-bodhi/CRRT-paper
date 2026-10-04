@@ -2,6 +2,111 @@
 
 Every judgment call, with its date (plan Part 14). Newest first.
 
+## 2026-10-04 — Adjudication viewer
+
+**Decision.** The adjudicator reads each sampled circuit in pages built
+**on their own machine, from their own credentialed MIMIC-IV copy**, and
+records each verdict by clicking a button on the page
+(`crrt.adjudication_viewer`). One command sets the machine up
+(`crrt.adjudication_setup`, run by `adjudicate.bat` on Windows and
+`adjudicate.sh` on Mac and Linux). After that the adjudicator only
+double-clicks **Adjudicate** on the desktop. Pages and verdict sheets go to
+`paths.adjudication_dir`, inside the gitignored data/. The guide is
+`docs/adjudication_guide.md`.
+
+- **What a page shows.** The circuit as charted, back to its start or at
+  most `adjudication_view_hours.before_end` (72 h), and `after_end` (6 h)
+  past its end. That covers System Integrity, the filter change reason,
+  CRRT mode, the machine signals, citrate and heparin (`chartevents`),
+  calcium (`labevents`), and death or ICU discharge inside the window. A
+  chart plots the four circuit pressures; every value is also in the
+  flowsheet table. The flowsheet fits the window width, with no sideways
+  scrolling at 1280 px, and its column names stay in view while scrolling
+  down.
+- **Blinding.** Times are relative to the circuit end. No page shows the
+  stratum, `termination_class`, an identifier, an absolute timestamp or
+  model output. The circuits the pipeline cut after this one are not
+  shown either, because where the pipeline starts the next circuit
+  partly encodes the label rule. The adjudicator still sees raw `Clotted`
+  entries: adjudication reads the same charting as the rule (feasibility
+  §6, item 4). Tests check all of this.
+- **The frozen sample is enforced.** The viewer refuses to build unless
+  the sample's fingerprint equals `adjudication_sample_sha256`.
+- **Practice.** `adjudication_practice_per_stratum` (1) circuit per
+  stratum, drawn by the same generator after the sample, from what it
+  left. A test shows that drawing them does not move the sample. The full
+  run printed the same fingerprint as before. Practice fingerprint:
+  `d9e1a9e4d00fb21c70aa1ed4d8711817b63992febe345533410ea97501a145ec`.
+- **Recording verdicts.** `adjudication_viewer serve`, which the launcher
+  runs, serves the pages from 127.0.0.1 on `adjudication_port` and opens
+  the browser. Each click rewrites `verdicts.csv` at once
+  (`practice_verdicts.csv` for practice), so a page shows its saved verdict
+  when revisited and nothing is lost when the browser closes. The list
+  page shows progress and where to continue.
+- **Setup.** `crrt.adjudication_setup` works the same way on all three
+  platforms:
+  - It refuses to run inside a cloud-synced folder (OneDrive, Dropbox,
+    iCloud, Google Drive).
+  - It downloads, with the adjudicator's own PhysioNet login, only the
+    files `crrt.build_db` reads. The password is never stored. A stopped
+    download resumes, and each file is checked against PhysioNet's
+    `SHA256SUMS.txt`.
+  - It runs the stages the sample needs, as `adjudicate.sh` did, then puts
+    the launcher on the desktop.
+- **What comes back.** Once every sampled circuit has a verdict, the app
+  writes a file with `review_order` and `verdict` only, the same file
+  `adjudication_viewer check` writes. Notes stay on the adjudicator's
+  machine.
+
+**Why.**
+
+- Under the DUA no row may be sent to the adjudicator. Building the pages
+  where they are read is the only way that needs no exception. Viewing
+  pages on a credentialed team member's machine was considered and
+  rejected the same day. It rests on the team's reading of the DUA, which
+  PhysioNet has not confirmed, so each adjudicator downloads their own
+  copy.
+- The adjudicator is a clinician, not a programmer. After setup, every
+  step is a click.
+- Why verdicts need a local server:
+  - A page opened from disk cannot write a file.
+  - Browser storage was rejected: clearing the browser history would erase
+    the verdicts, and getting them out would need an export step.
+  - The server uses only the Python standard library: no new dependency,
+    and it works offline.
+  - It listens on 127.0.0.1 only, so nothing outside the machine can reach
+    it.
+  - It refuses requests naming any other host, which stops another web page
+    from reading pages through DNS rebinding.
+  - It refuses POSTs from any other origin, or not sent as JSON, which stops
+    another web page from changing verdicts.
+- The download identifies itself as `Wget/1.21.4 (crrt-adjudication-setup)`.
+  On 2026-10-04 PhysioNet answered wget's agent with a Basic login
+  challenge (401) and refused Python's and curl's default agents outright
+  (403), with or without a login. wget is PhysioNet's documented download
+  tool. The adjudicator's own credential is still required. Chosen by the
+  authors over a browser download or installing wget.
+- Only `review_order, verdict` leaves the adjudicator's machine. It holds
+  no MIMIC value, identifier or time. It maps back to circuits only
+  through the seeded draw on another credentialed copy.
+
+**For the authors.**
+
+- Agree that `review_order, verdict` is outside the no-sharing rule under
+  your reading of the DUA (Part 2.4).
+- Consider telling PhysioNet that the setup download names itself as
+  wget-compatible, or asking whether they prefer another way.
+- No real page has been viewed by any hosted AI tool. Layout was checked
+  on synthetic pages only (2026-10-02, aggregate results).
+- Setup has not been run on Windows or a Mac. The first run is the setup
+  visit; allow time for it.
+
+**Where it applies.** Plan Parts 2.4 and 5.1. `config/config.yaml →
+paths.adjudication_dir`, `paths.mimic_url`,
+`outcomes.circuit_failure.adjudication_*`. `adjudicate.sh`,
+`adjudicate.bat`, `src/crrt/adjudication_setup.py`,
+`docs/adjudication_guide.md`.
+
 ## 2026-10-04 — Kappa rules for adjudication
 
 **Decision.** This settles the three questions left open by "Adjudication

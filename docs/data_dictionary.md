@@ -198,6 +198,36 @@ prints is what is recorded.
 | `drawn_circuits` | integer | The stratum's `circuits`. |
 | `weight` | ratio | `frame_circuits / drawn_circuits`: how many frame circuits each sampled circuit stands for, for kappa weighted back to the frame. |
 
+`adjudication_practice` holds the practice circuits for the calibration
+session: `adjudication_practice_per_stratum` per stratum, drawn by the same
+generator after the sample, from the circuits the sample left. Its columns
+are `practice_order` (1 to its size, strata mixed), `circuit_id`,
+`subject_id`, `stay_id`, `circuit_start`, `circuit_end`, `stratum` and
+`termination_class`, as above. Their verdicts are never counted.
+
+## Verdict sheets
+
+The adjudicator's verdicts, in `paths.adjudication_dir` on the
+adjudicator's own machine. `uv run python -m crrt.adjudication_viewer build`
+creates them empty, and never overwrites one that exists. The adjudication
+app (`... serve`) rewrites a sheet each time a verdict button is clicked or
+a note is changed. Never committed. Decision: `docs/decisions.md`
+2026-10-04, "Adjudication viewer".
+
+| File | Key column | Rows |
+|---|---|---|
+| `verdicts.csv` | `review_order` | One per `adjudication_sample` circuit. |
+| `practice_verdicts.csv` | `practice_order` | One per `adjudication_practice` circuit. Never counted, never sent. |
+
+| Column | Type / unit | Definition |
+|---|---|---|
+| `verdict` | text | One of `outcomes.circuit_failure.adjudication_verdicts`; empty until clicked. Only `clotting` is a clot. |
+| `note` | free text | Optional. Stays on the adjudicator's machine, because a note can quote a charted value. |
+
+Once every `verdicts.csv` row has a verdict,
+`verdicts_send_<first 12 of adjudication_sample_sha256>.csv` is written with
+`review_order` and `verdict` only. It is the one file sent back.
+
 ## `circuit_failure_labels`
 
 One row per included `crrt_cohort` circuit per prediction time, with the
