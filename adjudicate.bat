@@ -1,8 +1,9 @@
 @echo off
-rem Set up the label adjudication app on the adjudicator's own Windows
-rem computer (Part 5.1 step 4): the same steps as adjudicate.sh, in
-rem crrt.adjudication_setup. Read docs\adjudication_guide.md first.
-rem Double-click this file, then double-click Adjudicate on the desktop.
+rem The fallback: build the adjudication pages on this Windows computer from
+rem the adjudicator's own MIMIC-IV download (Part 5.1 step 4), the same steps
+rem as adjudicate.sh, in crrt.adjudication_setup. It needs uv, which Windows
+rem 11's Smart App Control blocks. Usually use the exported package instead,
+rem which runs on Python alone: read docs\adjudication_guide.md first.
 cd /d "%~dp0"
 uv run python -m crrt.adjudication_setup
 pause

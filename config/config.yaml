@@ -324,6 +324,16 @@ outcomes:
     # outside the adjudicator's machine can reach it (decisions.md 2026-10-04,
     # "Adjudication viewer").
     adjudication_port: 8765
+    # Python for a Windows adjudicator, packed into the export
+    # (crrt.adjudication_viewer export) so they install nothing. It is
+    # python.org's embeddable build: of its 33 .exe, .dll and .pyd files, 31
+    # are signed by the Python Software Foundation and 2 (the C runtime) by
+    # Microsoft, so Windows 11's Smart App Control lets them run. sha256 is
+    # python.org's published checksum (its downloads API, 2026-10-04).
+    # Decided 2026-10-04 (decisions.md, "The package runs on Python alone").
+    adjudication_windows_python:
+      url: https://www.python.org/ftp/python/3.14.8/python-3.14.8-embed-amd64.zip
+      sha256: a93abe456ab01bd96d7a085b3cdb6566b3063f4241360d114142fbdb07f0a310
     # crrt_circuits.termination_class values that are the event. Primary:
     # documented Clotted only, which leaves nurse-charted Clots Increasing
     # free to be a feature and the comparator rule (Part 8.1). Sensitivity:

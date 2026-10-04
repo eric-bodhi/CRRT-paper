@@ -87,7 +87,10 @@ session with the team. Practice answers are never counted or sent.
 ## For the person setting up
 
 Do this once, at the adjudicator's computer, with them there. Windows, Mac
-and Linux all work.
+and Linux all work. On Windows nothing is installed: the package carries
+its own Python. A Mac needs Python 3 once. No uv, no git, no download of
+MIMIC-IV (`docs/decisions.md` 2026-10-04, "The package runs on Python
+alone").
 
 **Before the visit.**
 
@@ -100,47 +103,53 @@ and Linux all work.
 - On your own credentialed machine, run
   `uv run python -m crrt.adjudication_viewer export`. It rebuilds the pages,
   checks that the sample is the frozen one, and writes
-  `data/adjudication_pages_<sample>.zip`, about 1 MB, with empty verdict
-  sheets. Your own clicks and notes are never in it.
+  `data/adjudication_pages_<sample>.zip`, about 14 MB. Inside are the pages,
+  the app, its launchers and a Python for Windows, and no answer sheet:
+  your own clicks and notes are never in it. The app makes empty sheets the
+  first time it starts. The first export downloads that Python from
+  python.org and checks it against the checksum pinned in the config.
 - Copy that file to an encrypted USB drive: BitLocker To Go on Windows, or
   a drive erased as encrypted in Disk Utility on a Mac. Never send it by
   email, cloud storage, chat or any other online service.
-- About 1 GB free on the adjudicator's disk is enough.
 
 **Steps.**
 
-1. **Install uv.** Windows, in PowerShell:
-   `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`.
-   Mac or Linux, in Terminal: `curl -LsSf https://astral.sh/uv/install.sh | sh`.
-   Close and reopen the window afterwards.
-2. **Put this repository in the home folder**, for example
-   `C:\Users\<name>\crrt` or `~/crrt`, with `git clone` or GitHub's
-   Download ZIP. Not on the Desktop, in Documents, or in OneDrive, Dropbox,
-   iCloud or Google Drive: those are often synced to a cloud, which the DUA
-   forbids. Setup refuses to run in a synced folder.
-3. **Copy `adjudication_pages_<sample>.zip`** from the USB drive into that
-   folder.
-4. **Run setup.** Windows: double-click `adjudicate.bat`. Mac or Linux: run
-   `./adjudicate.sh` in Terminal. It unpacks the pages and puts
-   **Adjudicate** on the desktop. The first run takes a minute or two while
-   it installs Python packages.
-5. **Delete the zip** from the folder and from the USB drive.
-6. **Check it together.** Double-click **Adjudicate**, open a practice
+1. **Mac only: Python 3.** Install it from python.org (Downloads), with the
+   installer's default options. Windows needs nothing: the package's own
+   Python is python.org's, signed, so Windows 11's Smart App Control lets
+   it run. Linux already has Python.
+2. **Copy the zip from the USB drive and unzip it into the home folder.**
+   On Windows, right-click the zip, choose Extract All, and extract to
+   `C:\Users\<name>\Adjudication`. On a Mac, double-click the zip and move
+   the folder it makes into the home folder. Not on the Desktop, in
+   Documents, or in OneDrive, Dropbox, iCloud or Google Drive: those are
+   often synced to a cloud, which the DUA forbids. The app refuses to run
+   from a synced folder.
+3. **Make a desktop shortcut.** In the folder, right-click **Adjudicate**
+   (`Adjudicate.bat` on Windows, `Adjudicate.command` on a Mac). On Windows
+   choose Show more options, then Send to, then Desktop (create shortcut).
+   On a Mac choose Make Alias and drag the alias to the Desktop. Rename it
+   **Adjudicate**.
+4. **Delete the zip** from the computer and from the USB drive.
+5. **Check it together.** Double-click **Adjudicate**, open a practice
    circuit, click a button, and see **Saved ✓**. Reload the page: the
    button is still highlighted.
 
-To update the pages later, export again, copy the new zip into the folder
-and rerun setup. It replaces the pages and keeps every answer.
+To update the pages later, export again and unzip the new package over the
+old folder, replacing files when asked. The answers are safe: the package
+has no answer sheets in it.
 
-**Without a package.** If setup finds no package and no pages, it offers to
-build the pages on this computer instead. The adjudicator types their own
-PhysioNet username and password, which are used for this download only and
-never saved. Only the files the pipeline reads are downloaded, each checked
-against PhysioNet's checksums, and a stopped download carries on when setup
-is run again. This takes hours and needs at least 35 GB free.
+**Building the pages on this computer instead.** If there is no package,
+this repository can build the pages from the adjudicator's own MIMIC-IV
+download: run `adjudicate.bat` or `./adjudicate.sh`, and the adjudicator
+types their own PhysioNet login. It needs uv, so it does not work under
+Windows' Smart App Control. It takes hours and at least 35 GB.
 
-**If something goes wrong.** Setup and the Adjudicate window print what
-stopped them. Send that text, and nothing from any page, to the study team.
-On Linux, right-click Adjudicate on the desktop and choose Allow Launching
-the first time. If Windows says `uv` is not recognized, sign out and back in
-so the new PATH applies.
+**If something goes wrong.** The Adjudicate window prints what stopped it.
+Send that text, and nothing from any page, to the study team.
+
+- **Windows says Python was not found:** the `python` folder is missing
+  from the unzipped folder. Unzip the package again, all of it.
+- **A Mac says Adjudicate.command cannot be opened:** right-click it, choose
+  Open, then Open again.
+- **Linux:** run `./Adjudicate.sh` in a terminal in the folder.

@@ -2,7 +2,71 @@
 
 Every judgment call, with its date (plan Part 14). Newest first.
 
+## 2026-10-04 — The package runs on Python alone
+
+**Decision.** The exported package now runs by itself: no uv, no
+repository, no installed packages. On Windows it carries its own Python, so
+nothing is installed at all.
+`crrt.adjudication_viewer build` writes these into the pages folder, and
+`export` zips them:
+
+- `adjudication_app.py`: the server and verdict sheets, moved out of the
+  viewer into `crrt.adjudication_app`, which imports only the standard
+  library;
+- `manifest.json`: the settings it needs from config/config.yaml (sample
+  fingerprint, sample size, practice size, verdicts, port);
+- a double-click launcher for each platform: `Adjudicate.bat`,
+  `Adjudicate.command` and `Adjudicate.sh`;
+- the guide;
+- under `python/`, only in the export: python.org's embeddable Python for
+  Windows (`adjudication_windows_python`, 3.14.8). The first export
+  downloads it, and every export checks it against the pinned SHA-256,
+  which is python.org's published one. `Adjudicate.bat` runs it.
+
+On a Windows computer: unzip the package into the home folder and
+double-click Adjudicate. A Mac needs Python 3 from python.org first. The
+app refuses to run from a cloud-synced folder.
+
+The package carries no verdict sheet. The app creates the sheets empty the
+first time it starts. A newer package unzipped over the folder therefore
+cannot overwrite the answers, and the person updating it has nothing to
+remember. `crrt.adjudication_setup`, which needs uv,
+stays only as the build-it-here fallback; its unpack step is gone.
+
+**Why.**
+
+- On a personal Windows 11 computer, setup failed with an Application
+  Control block. That is Smart App Control: it blocks programs that are not
+  code-signed and have no Microsoft reputation, and it has no per-app
+  exception. uv.exe and the Python uv downloads (python-build-standalone)
+  are both unsigned. Python from python.org is signed and allowed. In its
+  embeddable build, 31 of the 33 .exe, .dll and .pyd files are signed by
+  the Python Software Foundation and 2 (the C runtime) by Microsoft
+  (checked 2026-10-04 by reading each file's signature block). Compiled
+  packages from PyPI (duckdb, numpy) are unsigned, so the app uses none.
+- Python goes inside the package rather than being downloaded when the app
+  first runs. The adjudicator then needs no installer, no internet and no
+  admin rights. A launcher that downloads and runs a program can also look
+  like malware to antivirus. The cost is about 13 MB.
+- Turning Smart App Control off would also work. That is the adjudicator's
+  decision about their own computer, and the app should not need it.
+- Tests run the unpacked package with `python -I -S`, so only the standard
+  library can be imported. They also run it on Python 3.9, a Mac's built-in
+  python3; that caught a 3.10-only call that would have stopped every save.
+  It also passes on 3.14, the packed Windows version.
+
+**For the authors.** Not yet run on the Windows computer that failed. The
+first run there is the test. A signature block's presence was checked here,
+not its cryptographic validity; Windows checks that when the file runs.
+
+**Where it applies.** `src/crrt/adjudication_app.py`,
+`crrt.adjudication_viewer build`/`export`, `crrt.adjudication_setup`,
+`docs/adjudication_guide.md`.
+
 ## 2026-10-04 — Hand the pages to a credentialed adjudicator
+
+*The setup step described here was replaced the same day by "The package
+runs on Python alone", above: the package now runs by itself.*
 
 **Decision.** The authors' position is that handing MIMIC-IV-derived files
 to someone who holds their own PhysioNet credential, and has signed the
