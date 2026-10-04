@@ -65,6 +65,10 @@ REQUIRED_KEYS = [
     "features.pressure_clip_itemids",
     "features.machine_signals",
     "features.crrt_mode_itemid",
+    "features.anticoag_signals",
+    "features.calcium_labs",
+    "features.calcium_pair_minutes",
+    "features.calcium_mg_dl_per_mmol_l",
     "evaluation.alert_budget_alerts",
     "evaluation.alert_budget_hours",
     "paths.mimic_dir",
@@ -110,18 +114,22 @@ def test_warmup_and_blanking_fit_inside_the_horizon(config):
 def test_plausibility_bounds_are_ordered_and_reviewed(config):
     """Each bound is [low, high] with low < high, on an itemid the hand
     review included (Part 2.3): a bound on an unreviewed item is a bound on
-    a variable no feature may read."""
+    a variable no feature may read. Labevents itemids are outside the review
+    by design (labs come from labevents, not its chartevents copies); they
+    are allowed only as a named calcium lab."""
     reviewed = yaml.safe_load(ITEMID_REVIEW_PATH.read_text())["items"]
+    labs = set(config["features"]["calcium_labs"].values())
     for itemid, (low, high) in config["features"]["plausibility_bounds"].items():
         assert low < high, itemid
-        assert reviewed[itemid]["verdict"] == "include", itemid
+        assert itemid in labs or reviewed[itemid]["verdict"] == "include", itemid
 
 
-def test_machine_signals_are_bounded(config):
-    """Every machine signal is read through its plausibility bound (Part 7);
+@pytest.mark.parametrize("group", ["machine_signals", "anticoag_signals", "calcium_labs"])
+def test_feature_signals_are_bounded(config, group):
+    """Every feature signal is read through its plausibility bound (Part 7);
     an item without one would reach the features uncleaned."""
     features = config["features"]
-    assert set(features["machine_signals"].values()) <= set(features["plausibility_bounds"])
+    assert set(features[group].values()) <= set(features["plausibility_bounds"])
 
 
 def test_clipped_pressures_are_bounded(config):

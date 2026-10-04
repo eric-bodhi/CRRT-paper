@@ -1,9 +1,11 @@
 """Build the feature tables (Part 7).
 
-So far only the machine/circuit group: `machine_features`, one row per
-prediction row of `circuit_failure_labels` (the same grid as
-`hypophos_labels`), from data available at the prediction time. Rules in
-`sql/machine_features.sql`.
+So far two groups, each one row per prediction row of
+`circuit_failure_labels` (the same grid as `hypophos_labels`), from data
+available at the prediction time: the machine/circuit group
+(`machine_features`, rules in `sql/machine_features.sql`) and the
+anticoagulation group (`anticoag_features`, rules in
+`sql/anticoag_features.sql`).
 
 This module binds the SQL's parameters from config/config.yaml and prints
 an aggregate summary, with every count under
@@ -22,6 +24,7 @@ from crrt.outcomes import _set
 from crrt.report import count
 
 MACHINE_FEATURES_SQL = config.REPO_ROOT / "sql" / "machine_features.sql"
+ANTICOAG_FEATURES_SQL = config.REPO_ROOT / "sql" / "anticoag_features.sql"
 
 
 def bind_machine_features(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
@@ -48,6 +51,34 @@ def bind_machine_features(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -
 def build_machine_features(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
     bind_machine_features(con, cfg)
     con.execute(MACHINE_FEATURES_SQL.read_text())
+
+
+def bind_anticoag_features(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
+    """Set every DuckDB variable that sql/anticoag_features.sql reads."""
+    f = cfg["features"]
+    bounds = f["plausibility_bounds"]
+
+    def bounded(signals: dict[str, int]) -> list[dict[str, Any]]:
+        return [{"name": name, "itemid": itemid,
+                 "low": float(bounds[itemid][0]), "high": float(bounds[itemid][1])}
+                for name, itemid in signals.items()]
+
+    items = bounded(f["anticoag_signals"])
+    _set(con, {
+        "anticoag_items": items,
+        "anticoag_itemids": [i["itemid"] for i in items],
+        "calcium_labs": bounded(f["calcium_labs"]),
+        "calcium_pair": timedelta(minutes=f["calcium_pair_minutes"]),
+        "calcium_mg_dl_per_mmol_l": float(f["calcium_mg_dl_per_mmol_l"]),
+        "windows": [{"hours": h, "span": timedelta(hours=h)} for h in f["window_hours"]],
+        "min_points_for_trend": f["min_points_for_trend"],
+        "step": timedelta(hours=cfg["prediction"]["step_hours"]),
+    })
+
+
+def build_anticoag_features(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
+    bind_anticoag_features(con, cfg)
+    con.execute(ANTICOAG_FEATURES_SQL.read_text())
 
 
 def summarize(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
@@ -85,11 +116,53 @@ def summarize(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
     print()
 
 
+def summarize_anticoag(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
+    """Coverage of each signal, and the anticoagulation class by era, among
+    scored circuit-failure rows. By era because the group was restricted to
+    sources that are charted the same way in every era (decisions.md,
+    2026-10-04)."""
+    small = cfg["reporting"]["small_cell_threshold"]
+    columns = [d[0] for d in con.execute("SELECT * FROM anticoag_features LIMIT 0").description]
+    names = [c.removesuffix("_hours_since_last") for c in columns if c.endswith("_hours_since_last")]
+    scored = "FROM anticoag_features JOIN circuit_failure_labels USING (circuit_id, pred_time) WHERE scored"
+    total = con.execute(f"SELECT count(*) {scored}").fetchone()[0]
+    print(f"anticoag_features: {len(columns)} columns; {count(total, small)} scored rows")
+
+    print(f"\n{'signal':20s} {'has last':>9s} {'median last':>12s} {'median h since':>15s}")
+    for s in names:
+        k, med, since = con.execute(
+            f"SELECT count({s}_last), median({s}_last), median({s}_hours_since_last) {scored}"
+        ).fetchone()
+        share = f"{k / total:.1%}" if k >= small else count(k, small)
+        print(f"{s:20s} {share:>9s} {med:>12.3g} {since:>15.1f}")
+
+    rows = con.execute(
+        "SELECT p.anchor_year_group, coalesce(a.anticoag_class, '(unknown)'), count(*) "
+        "FROM anticoag_features AS a "
+        "JOIN circuit_failure_labels AS l USING (circuit_id, pred_time) "
+        "JOIN patients AS p USING (subject_id) WHERE l.scored GROUP BY ALL"
+    ).fetchall()
+    eras = sorted({r[0] for r in rows})
+    classes = sorted({r[1] for r in rows})
+    cell = {(e, c): k for e, c, k in rows}
+    print(f"\n{'anticoag_class':20s}" + "".join(f"{e:>13s}" for e in eras))
+    for c in classes:
+        line = f"{c:20s}"
+        for e in eras:
+            k = cell.get((e, c), 0)
+            n = sum(cell.get((e, x), 0) for x in classes)
+            line += f"{(f'{k / n:.1%}' if k >= small else count(k, small)):>13s}"
+        print(line)
+    print()
+
+
 def main() -> None:
     cfg = config.load()
     con = duckdb.connect(str(config.path(cfg, "duckdb")))
     build_machine_features(con, cfg)
     summarize(con, cfg)
+    build_anticoag_features(con, cfg)
+    summarize_anticoag(con, cfg)
     con.close()
 
 

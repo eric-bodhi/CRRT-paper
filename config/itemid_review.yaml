@@ -78,7 +78,7 @@ items:
   225956: {verdict: include, roles: [circuit, label], reason: "Reason for filter change. Sparse (350 rows, 267 stays) but unambiguous: Clotted / Procedure / Line changed. Used where present (circuits.filter_change_reason_itemid)."}
   227290: {verdict: include, roles: [feature], reason: "CRRT mode: CVVHDF 95% of rows, CVVHD, CVVH, SCUF. Modality changes filtration fraction and so clotting risk."}
   228004: {verdict: include, roles: [feature], reason: "Citrate (ACD-A) rate, ml/hr, hourly from the machine. >0 in 6,190 of 8,414 circuits (74%): the main anticoagulation signal. Zeros (71,025 rows) mean citrate off, not missing."}
-  224145: {verdict: include, roles: [feature], reason: "Circuit heparin dose. The unit is charted as `units` but the item is per hour (label). >0 in 1,928 circuits; 0 in 71% of rows (no circuit heparin)."}
+  224145: {verdict: include, roles: [feature], reason: "Heparin dose per hour (unit charted as `units`), hourly on the CRRT flowsheet. >0 in 1,928 circuits; 0 in 71% of rows. Corrected 2026-10-04: not a separate circuit dose but the 225152 infusion charted again. At 77-90% of positive rows before 2020 a 225152 infusion is running, mostly at the same rate within 5%. The heparin signal of the anticoagulation group, because it is complete in every era."}
   225958: {verdict: exclude, reason: "Heparin concentration, Text. 89% `Not applicable`. 224145 already records the dose in units, so concentration adds nothing."}
   224191: {verdict: include, roles: [feature], reason: "Hourly patient fluid removal (net UF setting), mL, p50 360. Drives filtration fraction. Not interchangeable with 226457: within 10 mL at the same charttime in only 44% of rows."}
   225183: {verdict: include, roles: [feature], reason: "Current fluid balance goal, mL, p1–p99 -300 to 250. A prescription signal; 0 in 41% of rows."}
@@ -208,7 +208,7 @@ items:
   229640: {verdict: exclude, reason: "Calcium gluconate bolus, general repletion."}
   228317: {verdict: exclude, reason: "No rows."}
   227525: {verdict: include, roles: [feature], reason: "Calcium gluconate (CRRT), grams/hour, 2,280 stays. The calcium arm of the citrate protocol: 4,740 of 6,417 circuits that have it also have citrate charted. It tracks citrate intensity, and rising requirement is the citrate-accumulation signal (Part 3 table)."}
-  225152: {verdict: include, roles: [feature], reason: "Heparin infusion, units/hour, overlaps 1,954 circuits. Systemic anticoagulation, separate from the circuit dose 224145."}
+  225152: {verdict: include, roles: [feature], reason: "Heparin infusion, units/hour, overlaps 1,954 circuits. Corrected 2026-10-04: the same infusion that 224145 charts hourly, not a separate dose. Not read by the v1 anticoagulation group: inputevents loses about half its rows in 2020-22, and a row is stored near the end of its rate segment."}
   230044: {verdict: exclude, reason: "Heparin (CRRT pre-filter) as an infusion, under 10 stays. Circuit heparin is charted in 224145."}
   229597: {verdict: exclude, reason: "Heparin for Impella purge. Device purge, not systemic dosing."}
   225975: {verdict: exclude, reason: "Prophylactic subcutaneous heparin, recorded as `dose` only. Negligible effect on circuit anticoagulation."}

@@ -2,6 +2,121 @@
 
 Every judgment call, with its date (plan Part 14). Newest first.
 
+## 2026-10-04 — Anticoagulation features
+
+**Decision.** `sql/anticoag_features.sql` builds the anticoagulation feature
+group (Part 7, third bullet) as `anticoag_features`, in stage 5 of
+`run_all.sh`. It has one row per `circuit_failure_labels` row, the
+same grid as `machine_features`, and 49 columns:
+
+- citrate rate (228004) and heparin dose (224145), hourly from
+  `chartevents`, with the machine signals' last value and window statistics;
+- ionized calcium (50808), total calcium (50893) and the total:ionized
+  ratio, last value only;
+- `anticoag_class`: citrate / heparin / citrate_heparin / none.
+
+**v1 reads no `inputevents` item.** This departs from feasibility §6
+proposal 8 ("chartevents ∪ inputevents") and from Part 7, which lists the
+calcium replacement rate. Confirmed by the authors 2026-10-04. The reasons
+are two properties of `inputevents`:
+
+- **About half of its rows are lost in 2020–22, the temporal test era.**
+  This is the gap that moved the phosphate repletion censor to orders
+  (2026-10-03). Circuits with a record, by era (2008–10 … 2020–22):
+
+  | Source | Circuits |
+  |---|---|
+  | 228004 citrate > 0 (`chartevents`) | 1,217 / 1,071 / 1,036 / 1,404 / 1,462 |
+  | 227529/227528 ACD-A (`inputevents`) | 1,251 / 953 / 894 / 1,302 / **696** |
+  | 227525 CRRT calcium (`inputevents`) | 1,578 / 1,110 / 1,258 / 1,642 / **829** |
+
+  No new itemid replaces them in 2020–22. A model trained on earlier eras
+  would read "not recorded" as "not given" in the test era.
+- **A row is stored around the end of its bag or rate segment.** An ACD-A
+  row is one bag. It runs a median 298 min and is stored a median 309 min
+  after it starts; 13% are stored within an hour of starting. CRRT calcium
+  is stored a median 71 min after its start, and 48% within an hour. Under
+  the `storetime` rule (Part 6.4), the bag that is running now is
+  invisible. The `chartevents` items are stored a median 7–10 min after
+  charttime.
+
+**What this costs.**
+
+- **No calcium replacement rate.** Rising calcium requirement is the
+  citrate-accumulation signal. Ionized calcium and the total:ionized ratio
+  carry part of it.
+- **Citrate is unknown, not 0, in 195 circuits of 2008–10.** These circuits
+  have ACD-A in `inputevents` but 228004 is never charted. That is why
+  `anticoag_class` is null in 18.6% of scored 2008–10 rows, against
+  1.2–2.1% in later eras.
+- **`none` is contaminated.** Before 2020, where `inputevents` is complete,
+  18.6% of scored `none` rows have a 225152 heparin infusion running that
+  224145 does not show, and 4.9% argatroban or bivalirudin. Direct thrombin
+  inhibitors (241 circuits) are not represented at all. A subgroup analysis
+  by anticoagulation (Part 10) must name this. **The authors should
+  decide** whether a sensitivity analysis adds `inputevents` in the
+  training eras only.
+
+**The judgment calls.**
+
+- **224145 is the heparin signal, and 225152 is its duplicate.** At 77–90%
+  of rows with 224145 > 0 before 2020, a 225152 infusion is running, at the
+  same rate within 5% in most of them. The co-occurrence falls to 45% in
+  2020–22 only because 225152 loses rows. The 2026-10-02 itemid review
+  called 224145 a separate circuit dose. That is corrected in
+  `config/itemid_review.yaml`. Pre-filter heparin (230044) is in under 10
+  stays.
+- **0 is a value.** 228004 = 0 means citrate off, which is 24% of rows, and
+  224145 = 0 is 71% of rows. `anticoag_class` is `none` only when citrate is
+  charted as 0. With citrate not charted, it is null, because "not charted"
+  is the 2008–10 gap, not an off pump.
+- **Calcium is the patient's, not the filter's.** Results are matched on
+  `subject_id` and count from before `circuit_start`, back to the longest
+  window (12 h). Both are drawn about every 6 h. A 12 h window rarely holds
+  the three points a trend needs, so the labs carry only their last value.
+- **The ratio pairs each total calcium with the nearest ionized calcium
+  within 60 min,** the feasibility §4 rule. 93% of total calcium results
+  inside circuits have one. The pair counts once both are stored; total
+  calcium is stored a median 65 min after its draw, ionized 4 min.
+- **Calcium bounds come from the data**, cut where the continuous tail ends,
+  as for citrate and heparin. They go to the mentor's clinical plausibility
+  review. Rows inside included circuits:
+
+  | itemid | Item, unit | Bound | Rows | Below (circuits) | Above (circuits) |
+  |---|---|---|--:|--:|--:|
+  | 50808 | Free Calcium, mmol/L | 0.6 to 2.0 | 64,778 | 74 (42) | <10 |
+  | 50893 | Calcium, Total, mg/dL | 4 to 15 | 42,718 | <10 | 11 (11) |
+
+  Below 0.6 ionized there is a hump around 0.3 mmol/L. That is the
+  post-filter target on citrate, so these are circuit samples, not the
+  patient. 0.6 is the feasibility §4 cut. A real systemic value of
+  0.5–0.6, from severe accumulation, would be lost. That is 24 rows at
+  most.
+
+**Coverage, scored circuit-failure rows (317,028).**
+
+| Signal | Has last | Median last | Median hours since |
+|---|--:|--:|--:|
+| `citrate_rate` | 93.2% | 180 ml/hr | 1 |
+| `heparin_dose` | 66.4% | 0 units/hr | 1 |
+| `ionized_calcium` | 99.4% | 1.11 mmol/L | 3 |
+| `total_calcium` | 90.8% | 9.0 mg/dL | 5 |
+| `calcium_ratio` | 87.2% | 2.01 | 5 |
+
+| `anticoag_class` | 2008–10 | 2011–13 | 2014–16 | 2017–19 | 2020–22 |
+|---|--:|--:|--:|--:|--:|
+| citrate | 55.3% | 70.8% | 62.3% | 59.7% | 62.6% |
+| citrate_heparin | 6.9% | 9.1% | 7.3% | 8.6% | 14.2% |
+| heparin | 7.7% | 6.3% | 11.8% | 8.2% | 7.2% |
+| none | 11.5% | 11.7% | 16.4% | 21.7% | 14.8% |
+| unknown | 18.6% | 2.1% | 2.1% | 1.7% | 1.2% |
+
+**Where it applies.** Plan Parts 6.4, 7 and 10. `config/config.yaml →
+features.anticoag_signals`, `calcium_labs`, `calcium_pair_minutes`,
+`calcium_mg_dl_per_mmol_l`, `plausibility_bounds` (50808, 50893).
+`config/itemid_review.yaml` (224145, 225152). Columns are defined in
+`docs/data_dictionary.md`, "`anticoag_features`".
+
 ## 2026-10-03 — Machine features
 
 **Decision.** `sql/machine_features.sql` builds the machine/circuit feature

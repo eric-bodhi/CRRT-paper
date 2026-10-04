@@ -10,7 +10,8 @@
 # Usage: ./run_all.sh
 #
 # Implemented so far: database build, the itemid evidence sweep, circuits, the
-# cohort with its STROBE flow, the outcome labels, and the machine features.
+# cohort with its STROBE flow, the outcome labels, and the machine and
+# anticoagulation features.
 
 set -euo pipefail
 
@@ -39,7 +40,8 @@ uv run python -m crrt.cohort
 uv run python -m crrt.outcomes
 
 # 5. Features (Part 7): one row per prediction row, from data stored by the
-#    prediction time -> table machine_features. Clinical groups to follow.
+#    prediction time -> tables machine_features and anticoag_features.
+#    Clinical groups to follow.
 #    Prints aggregate coverage only.
 uv run python -m crrt.features
 

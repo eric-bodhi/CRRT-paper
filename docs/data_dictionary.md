@@ -109,6 +109,7 @@ machine items".
 | Items | Rule | Config key |
 |---|---|---|
 | Machine items: 224144 Blood Flow; 224149, 224150, 224151, 224152 the raw circuit pressures; 229247 TMP; 229248 Pressure Drop; 224153, 228006, 228005, 224154 replacement, post-filter, PBP and dialysate rates; 224191 Hourly Patient Fluid Removal; 226457 Ultrafiltrate Output; 225183 Current Goal; 228004 Citrate (ACD-A); 224145 Heparin Dose | A value outside [low, high] (inclusive) is set to missing. | `features.plausibility_bounds` |
+| Calcium labs (`labevents`): 50808 Free Calcium, 50893 Calcium, Total | As above. Decision: `docs/decisions.md` 2026-10-04, "Anticoagulation features". | `features.plausibility_bounds` |
 | Raw circuit pressures 224149, 224150, 224151, 224152 | Exception: a value past a bound by at most the margin is set to the bound (a sensor at its limit). Further out, missing. | `features.pressure_clip_margin_mmhg`, `features.pressure_clip_itemids` |
 
 TMP and pressure drop derived from the raw pressures (feasibility §1) are
@@ -318,3 +319,63 @@ each of `features.window_hours`. A window is the closed interval
 | `<s>_<w>h_mean`, `_min`, `_max` | signal unit | Over the window. Null if `n` = 0. |
 | `<s>_<w>h_slope` | signal unit per hour | Least-squares slope on `charttime`. Null if `n` < `features.min_points_for_trend`. |
 | `<s>_<w>h_var` | signal unit² | Sample variance. Null if `n` < `features.min_points_for_trend`. |
+
+## `anticoag_features`
+
+The anticoagulation feature group (Part 7, third bullet). One row per
+`circuit_failure_labels` row, scored or not: the same grid as
+`machine_features`. Built by `sql/anticoag_features.sql`, run from
+`uv run python -m crrt.features` (stage 5 of `run_all.sh`). Decision:
+`docs/decisions.md` 2026-10-04, "Anticoagulation features".
+
+**Sources.**
+
+| Signal | Table | itemid | Unit |
+|---|---|---|---|
+| `citrate_rate` | `chartevents` | 228004 Citrate (ACD-A). 0 means citrate off, not missing | ml/hr |
+| `heparin_dose` | `chartevents` | 224145 Heparin Dose (per hour): the heparin infusion as charted on the CRRT flowsheet | units/hr |
+| `ionized_calcium` | `labevents` | 50808 Free Calcium (blood gas) | mmol/L |
+| `total_calcium` | `labevents` | 50893 Calcium, Total (chemistry) | mg/dL |
+
+Names and itemids: `features.anticoag_signals`, `features.calcium_labs`.
+No `inputevents` item is read (ACD-A 227529/227528, CRRT calcium 227525,
+heparin 225152, argatroban 225147, bivalirudin 225148). See the decision.
+
+**Cleaning rules.**
+
+- `citrate_rate`, `heparin_dose`: the `machine_features` rules. A value
+  counts at *t* only if `charttime ≤ t`, `storetime ≤ t` and
+  `charttime ≥ circuit_start`, and it must be inside its plausibility bound.
+  Out of bound is missing, never clipped. No duplicate (`stay_id`, `itemid`,
+  `charttime`) exists for either inside included circuits.
+- Calcium labs: the patient's results, matched on `subject_id`, so a result
+  drawn before `circuit_start` (on the previous filter, or before CRRT)
+  counts. A result counts at *t* only if `charttime ≤ t`, `storetime ≤ t`,
+  and `charttime ≥ t −` the longest of `features.window_hours`, and it must
+  be inside its plausibility bound. Results of one item at one `charttime`
+  (26 total-calcium and under 10 ionized charttimes) are averaged and
+  available at the later `storetime`.
+
+**Derived.**
+
+| Name | Definition | Unit |
+|---|---|---|
+| `calcium_ratio` | Total calcium / `features.calcium_mg_dl_per_mmol_l` ÷ ionized calcium. Each bounded total calcium is paired with the bounded ionized calcium whose `charttime` is nearest, within `features.calcium_pair_minutes` either side, ties to the earlier draw. Timed at the total's `charttime`; available once both are stored. | ratio |
+| `anticoag_class` | From `citrate_rate_last` and `heparin_dose_last`: `citrate_heparin` if both > 0; else `citrate` or `heparin` if that one is > 0; else `none` if `citrate_rate_last` = 0; else null (nothing known about citrate). | text |
+
+**Columns.** `<s>` is `citrate_rate` or `heparin_dose`; `<l>` is any of
+those two, `ionized_calcium`, `total_calcium` or `calcium_ratio`; `<w>` is
+each of `features.window_hours`.
+
+| Column | Type / unit | Definition |
+|---|---|---|
+| `circuit_id`, `pred_time` | | As in `circuit_failure_labels`. |
+| `anticoag_class` | text | See above. |
+| `<l>_last` | signal unit | The latest-charted value in the longest window. Null if none. |
+| `<l>_hours_since_last` | hours | `pred_time` − the `charttime` of `<l>_last`. |
+| `<s>_<w>h_n`, `_mean`, `_min`, `_max`, `_slope`, `_var` | | As in `machine_features`. |
+
+Known misclassification in `anticoag_class` (scored rows before 2020, where
+`inputevents` is complete): 18.6% of `none` rows have a 225152 heparin
+infusion running and 4.9% argatroban or bivalirudin. 7.4% of `citrate` rows
+have 225152 heparin running.
