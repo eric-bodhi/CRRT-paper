@@ -162,6 +162,72 @@ and "Chronic dialysis flag". Downstream stages read `WHERE included`.
 | `exclusion_reason` | text | First rule failed, in STROBE order: `under_min_age`, `under_min_duration`. Null if included. |
 | `included` | boolean | `exclusion_reason` is null. |
 
+## `adjudication_sample`
+
+One row per circuit drawn for label adjudication (Part 5.1 step 4): a
+stratified sample of included circuits by `termination_class`. Built by
+`uv run python -m crrt.adjudication` (stage 3b of `run_all.sh`). Decisions:
+`docs/decisions.md` 2026-10-04, "Adjudication sample" and "Clinical review
+waits for a clinical mentor". Never committed. The fingerprint the stage
+prints is what is recorded.
+
+**Sources.**
+
+| Role | Table | itemid / column | Config key |
+|---|---|---|---|
+| Frame | `crrt_circuits`, `crrt_cohort` | `termination_class`, `included` | `outcomes.circuit_failure.adjudication_strata` |
+| Seed | — | — | `reproducibility.random_seed` |
+
+**Cleaning rules.**
+
+- The frame of a stratum is every included circuit whose
+  `termination_class` is in its `classes`, sorted by `circuit_id`.
+  Censored classes (`competing_risk_classes`) are in no stratum.
+- One generator, seeded once, draws the strata in config order without
+  replacement, then shuffles `review_order`.
+- The fingerprint is a SHA-256 over the sampled `stay_id,circuit_start`
+  lines, sorted. It does not depend on `circuit_id` numbering.
+
+| Column | Type / unit | Definition |
+|---|---|---|
+| `review_order` | integer | 1 to the sample size. The order the adjudicator reviews in; strata are mixed. |
+| `circuit_id`, `subject_id`, `stay_id`, `circuit_start`, `circuit_end` | as in `crrt_circuits` | The circuit. |
+| `stratum` | text | Its `adjudication_strata` key. **Never shown to the adjudicator.** |
+| `termination_class` | text | As in `crrt_circuits`. **Never shown to the adjudicator.** |
+| `frame_circuits` | integer | Circuits in the stratum's frame. |
+| `drawn_circuits` | integer | The stratum's `circuits`. |
+| `weight` | ratio | `frame_circuits / drawn_circuits`: how many frame circuits each sampled circuit stands for, for kappa weighted back to the frame. |
+
+`adjudication_practice` holds the practice circuits for the calibration
+session: `adjudication_practice_per_stratum` per stratum, drawn by the same
+generator after the sample, from the circuits the sample left. Its columns
+are `practice_order` (1 to its size, strata mixed), `circuit_id`,
+`subject_id`, `stay_id`, `circuit_start`, `circuit_end`, `stratum` and
+`termination_class`, as above. Their verdicts are never counted.
+
+## Verdict sheets
+
+The adjudicator's verdicts, in `paths.adjudication_dir` on the
+adjudicator's own machine. `uv run python -m crrt.adjudication_viewer build`
+creates them empty, and never overwrites one that exists. The adjudication
+app (`... serve`) rewrites a sheet each time a verdict button is clicked or
+a note is changed. Never committed. Decision: `docs/decisions.md`
+2026-10-04, "Adjudication viewer".
+
+| File | Key column | Rows |
+|---|---|---|
+| `verdicts.csv` | `review_order` | One per `adjudication_sample` circuit. |
+| `practice_verdicts.csv` | `practice_order` | One per `adjudication_practice` circuit. Never counted, never sent. |
+
+| Column | Type / unit | Definition |
+|---|---|---|
+| `verdict` | text | One of `outcomes.circuit_failure.adjudication_verdicts`; empty until clicked. Only `clotting` is a clot. |
+| `note` | free text | Optional. Stays on the adjudicator's machine, because a note can quote a charted value. |
+
+Once every `verdicts.csv` row has a verdict,
+`verdicts_send_<first 12 of adjudication_sample_sha256>.csv` is written with
+`review_order` and `verdict` only. It is the one file sent back.
+
 ## `circuit_failure_labels`
 
 One row per included `crrt_cohort` circuit per prediction time, with the

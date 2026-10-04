@@ -36,8 +36,15 @@ paths:
   # Unpacked MIMIC-IV 3.1 (hosp/, icu/). The demo has the same layout, so
   # pointing this at it runs the pipeline unchanged (Part 1.6).
   mimic_dir: data/mimiciv/3.1
+  # Where crrt.adjudication_setup downloads mimic_dir from, with the
+  # adjudicator's own PhysioNet login. A URL, not a path: config.path() is
+  # never called on it.
+  mimic_url: https://physionet.org/files/mimiciv/3.1
   duckdb: data/crrt.duckdb
   parquet_dir: data/parquet
+  # The adjudication viewer's pages and the nurse's verdict sheet. Under
+  # data/, so neither can be committed (Part 2.4).
+  adjudication_dir: data/adjudication
 
 
 itemid_inventory:
@@ -269,12 +276,54 @@ outcomes:
     # 5.1 step 3 — reported median filter lifespan by mode, used as a sanity
     # benchmark for the extracted distribution, not as a label rule.
     expected_median_lifespan_hours: [17, 21]
-    # 5.1 step 4 — mentor manually adjudicates a random sample of terminations
-    # against the algorithm; report Cohen's kappa.
-    adjudication_sample_size: 150
+    # 5.1 step 4 — a clinician adjudicates a sample of terminations against
+    # the algorithm; report Cohen's kappa. Stratified by termination_class,
+    # not simple random: a random 150 holds about 30 documented clots and 20
+    # undocumented ends, too few to estimate either class. The frame is every
+    # cohort circuit with a label, so death (censored) is in no stratum.
+    # Kappa is weighted back to the frame (stratum size / circuits drawn).
+    # Drawn once with reproducibility.random_seed and frozen before any model
+    # is fit. Decided 2026-10-04 (docs/decisions.md, "Adjudication sample").
+    adjudication_strata:
+      clotted:
+        classes: [clotted]
+        circuits: 40
+      clots_increasing:
+        classes: [clots_increasing]
+        circuits: 25
+      undocumented:
+        classes: [undocumented]
+        circuits: 45
+      other_non_event:
+        classes: [reached_limit, procedure_or_line_change, icu_discharge,
+                  crrt_ended, stopped_then_restarted]
+        circuits: 40
     # Part 13 kill checkpoint (end of week 9): below this kappa, circuit
     # failure drops to secondary and hypophosphatemia is promoted.
     adjudication_min_kappa: 0.6
+    # The frozen sample's fingerprint (decisions.md 2026-10-04, "Adjudication
+    # sample"). crrt.adjudication reports whether a rerun matches it, and the
+    # viewer refuses to build pages for any other sample.
+    adjudication_sample_sha256: a1d751af9f20e8cf6579c1ea290f062bd56c0b8ad022dcb18663885dffc99d24
+    # Practice circuits per stratum, drawn after the sample from what it left,
+    # for the calibration session. Their verdicts are never counted. Decided
+    # 2026-10-04 (decisions.md, "Adjudication viewer").
+    adjudication_practice_per_stratum: 1
+    # What one viewer page shows, in hours around circuit_end: back to the
+    # circuit start but no further than before_end (72 h covers the scheduled
+    # change interval), and after_end past it, where a new filter, death or
+    # ICU discharge shows how the circuit really ended.
+    adjudication_view_hours:
+      before_end: 72
+      after_end: 6
+    # The adjudicator's verdicts (Part 5.1 step 2). Only `clotting` is a clot;
+    # `unclear` counts as not a clot (decisions.md, "Kappa rules for
+    # adjudication").
+    adjudication_verdicts: [clotting, elective_scheduled, patient_related, unclear]
+    # The port the adjudication app listens on, on 127.0.0.1 only, so nothing
+    # outside the adjudicator's machine can reach it (decisions.md 2026-10-04,
+    # "Adjudication viewer").
+    adjudication_port: 8765
     # crrt_circuits.termination_class values that are the event. Primary:
     # documented Clotted only, which leaves nurse-charted Clots Increasing
     # free to be a feature and the comparator rule (Part 8.1). Sensitivity:

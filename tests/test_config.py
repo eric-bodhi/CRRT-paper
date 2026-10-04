@@ -5,6 +5,7 @@ actually parses and actually contains the parameters the pipeline will reach
 for. These tests fail loudly if a key is renamed or dropped.
 """
 
+import re
 from pathlib import Path
 
 import pytest
@@ -40,8 +41,13 @@ REQUIRED_KEYS = [
     "prediction.blanking_minutes",
     "prediction.warmup_hours",
     "outcomes.circuit_failure.scheduled_change_interval_hours",
-    "outcomes.circuit_failure.adjudication_sample_size",
+    "outcomes.circuit_failure.adjudication_strata",
     "outcomes.circuit_failure.adjudication_min_kappa",
+    "outcomes.circuit_failure.adjudication_sample_sha256",
+    "outcomes.circuit_failure.adjudication_practice_per_stratum",
+    "outcomes.circuit_failure.adjudication_view_hours",
+    "outcomes.circuit_failure.adjudication_verdicts",
+    "outcomes.circuit_failure.adjudication_port",
     "outcomes.circuit_failure.event_classes_primary",
     "outcomes.circuit_failure.event_classes_sensitivity",
     "outcomes.circuit_failure.competing_risk_classes",
@@ -72,6 +78,7 @@ REQUIRED_KEYS = [
     "evaluation.alert_budget_alerts",
     "evaluation.alert_budget_hours",
     "paths.mimic_dir",
+    "paths.mimic_url",
     "paths.duckdb",
     "paths.parquet_dir",
     "itemid_inventory.seed_category",
@@ -102,6 +109,22 @@ def test_hypophosphatemia_severe_below_moderate(config):
     """Severe is a lower phosphate than moderate (Part 5.2: <1.0 vs <2.0)."""
     thresholds = config["outcomes"]["hypophosphatemia"]
     assert thresholds["severe_mg_dl"] < thresholds["moderate_mg_dl"]
+
+
+def test_adjudication_strata_cover_every_labelled_class_once(config):
+    """The strata partition every termination_class except the censored ones
+    (decisions.md 2026-10-04, "Adjudication sample"). A class added to
+    crrt_circuits.sql without a stratum would silently leave the frame."""
+    cf = config["outcomes"]["circuit_failure"]
+    sql = (Path(__file__).parents[1] / "sql" / "crrt_circuits.sql").read_text()
+    end = sql.index("END AS termination_class")
+    case = sql[sql.rindex("CASE", 0, end):end]
+    every_class = set(re.findall(r"(?:THEN|ELSE) '(\w+)'", case))
+    strata = [s["classes"] for s in cf["adjudication_strata"].values()]
+    in_strata = [c for classes in strata for c in classes]
+    assert len(in_strata) == len(set(in_strata))
+    assert set(in_strata) == every_class - set(cf["competing_risk_classes"])
+    assert all(s["circuits"] > 0 for s in cf["adjudication_strata"].values())
 
 
 def test_warmup_and_blanking_fit_inside_the_horizon(config):

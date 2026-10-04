@@ -2,6 +2,249 @@
 
 Every judgment call, with its date (plan Part 14). Newest first.
 
+## 2026-10-04 — Adjudication viewer
+
+**Decision.** The adjudicator reads each sampled circuit in pages built
+**on their own machine, from their own credentialed MIMIC-IV copy**, and
+records each verdict by clicking a button on the page
+(`crrt.adjudication_viewer`). One command sets the machine up
+(`crrt.adjudication_setup`, run by `adjudicate.bat` on Windows and
+`adjudicate.sh` on Mac and Linux). After that the adjudicator only
+double-clicks **Adjudicate** on the desktop. Pages and verdict sheets go to
+`paths.adjudication_dir`, inside the gitignored data/. The guide is
+`docs/adjudication_guide.md`.
+
+- **What a page shows.** The circuit as charted, back to its start or at
+  most `adjudication_view_hours.before_end` (72 h), and `after_end` (6 h)
+  past its end. That covers System Integrity, the filter change reason,
+  CRRT mode, the machine signals, citrate and heparin (`chartevents`),
+  calcium (`labevents`), and death or ICU discharge inside the window. A
+  chart plots the four circuit pressures; every value is also in the
+  flowsheet table. The flowsheet fits the window width, with no sideways
+  scrolling at 1280 px, and its column names stay in view while scrolling
+  down.
+- **Blinding.** Times are relative to the circuit end. No page shows the
+  stratum, `termination_class`, an identifier, an absolute timestamp or
+  model output. The circuits the pipeline cut after this one are not
+  shown either, because where the pipeline starts the next circuit
+  partly encodes the label rule. The adjudicator still sees raw `Clotted`
+  entries: adjudication reads the same charting as the rule (feasibility
+  §6, item 4). Tests check all of this.
+- **The frozen sample is enforced.** The viewer refuses to build unless
+  the sample's fingerprint equals `adjudication_sample_sha256`.
+- **Practice.** `adjudication_practice_per_stratum` (1) circuit per
+  stratum, drawn by the same generator after the sample, from what it
+  left. A test shows that drawing them does not move the sample. The full
+  run printed the same fingerprint as before. Practice fingerprint:
+  `d9e1a9e4d00fb21c70aa1ed4d8711817b63992febe345533410ea97501a145ec`.
+- **Recording verdicts.** `adjudication_viewer serve`, which the launcher
+  runs, serves the pages from 127.0.0.1 on `adjudication_port` and opens
+  the browser. Each click rewrites `verdicts.csv` at once
+  (`practice_verdicts.csv` for practice), so a page shows its saved verdict
+  when revisited and nothing is lost when the browser closes. The list
+  page shows progress and where to continue.
+- **Setup.** `crrt.adjudication_setup` works the same way on all three
+  platforms:
+  - It refuses to run inside a cloud-synced folder (OneDrive, Dropbox,
+    iCloud, Google Drive).
+  - It downloads, with the adjudicator's own PhysioNet login, only the
+    files `crrt.build_db` reads. The password is never stored. A stopped
+    download resumes, and each file is checked against PhysioNet's
+    `SHA256SUMS.txt`.
+  - It runs the stages the sample needs, as `adjudicate.sh` did, then puts
+    the launcher on the desktop.
+- **What comes back.** Once every sampled circuit has a verdict, the app
+  writes a file with `review_order` and `verdict` only, the same file
+  `adjudication_viewer check` writes. Notes stay on the adjudicator's
+  machine.
+
+**Why.**
+
+- Under the DUA no row may be sent to the adjudicator. Building the pages
+  where they are read is the only way that needs no exception. Viewing
+  pages on a credentialed team member's machine was considered and
+  rejected the same day. It rests on the team's reading of the DUA, which
+  PhysioNet has not confirmed, so each adjudicator downloads their own
+  copy.
+- The adjudicator is a clinician, not a programmer. After setup, every
+  step is a click.
+- Why verdicts need a local server:
+  - A page opened from disk cannot write a file.
+  - Browser storage was rejected: clearing the browser history would erase
+    the verdicts, and getting them out would need an export step.
+  - The server uses only the Python standard library: no new dependency,
+    and it works offline.
+  - It listens on 127.0.0.1 only, so nothing outside the machine can reach
+    it.
+  - It refuses requests naming any other host, which stops another web page
+    from reading pages through DNS rebinding.
+  - It refuses POSTs from any other origin, or not sent as JSON, which stops
+    another web page from changing verdicts.
+- The download identifies itself as `Wget/1.21.4 (crrt-adjudication-setup)`.
+  On 2026-10-04 PhysioNet answered wget's agent with a Basic login
+  challenge (401) and refused Python's and curl's default agents outright
+  (403), with or without a login. wget is PhysioNet's documented download
+  tool. The adjudicator's own credential is still required. Chosen by the
+  authors over a browser download or installing wget.
+- Only `review_order, verdict` leaves the adjudicator's machine. It holds
+  no MIMIC value, identifier or time. It maps back to circuits only
+  through the seeded draw on another credentialed copy.
+
+**For the authors.**
+
+- Agree that `review_order, verdict` is outside the no-sharing rule under
+  your reading of the DUA (Part 2.4).
+- Consider telling PhysioNet that the setup download names itself as
+  wget-compatible, or asking whether they prefer another way.
+- No real page has been viewed by any hosted AI tool. Layout was checked
+  on synthetic pages only (2026-10-02, aggregate results).
+- Setup has not been run on Windows or a Mac. The first run is the setup
+  visit; allow time for it.
+
+**Where it applies.** Plan Parts 2.4 and 5.1. `config/config.yaml →
+paths.adjudication_dir`, `paths.mimic_url`,
+`outcomes.circuit_failure.adjudication_*`. `adjudicate.sh`,
+`adjudicate.bat`, `src/crrt/adjudication_setup.py`,
+`docs/adjudication_guide.md`.
+
+## 2026-10-04 — Kappa rules for adjudication
+
+**Decision.** This settles the three questions left open by "Adjudication
+sample".
+
+1. **The kill rule reads the point estimate.** Circuit failure drops to
+   secondary if the frame-weighted κ of the primary label is below
+   `adjudication_min_kappa` (0.6). The 95% CI (stratified bootstrap over
+   patients) is reported next to it but does not decide.
+2. **An adjudicator's "unclear" counts as not a clot.** κ compares
+   "clotting" against everything else. The share of unclear verdicts is
+   reported for each stratum, with κ recomputed without them as a
+   secondary number.
+3. **κ is reported for the sensitivity label too, but only the primary
+   label's κ decides.** Also reported, all weighted to the frame: κ for
+   `clotted` + `clots_increasing`; the PPV of `clotted`; the share of
+   `undocumented` and of `clots_increasing` circuits the adjudicator calls
+   clots; and agreement in each stratum. If the sensitivity label agrees
+   better, it does not replace the primary label.
+
+The kill rule reads the primary adjudicator's verdicts on all 150
+circuits. A second adjudicator's subset gives the agreement between the two
+raters and decides nothing.
+
+**Why.**
+
+- **Point estimate.** With 150 circuits the CI is about ±0.12 wide.
+  - Killing only when the whole CI is below 0.6 would keep circuit failure
+    as primary with a κ near 0.48. A reviewer would not accept that, and it
+    is not what protocol v0.1 states ("proceeds only if κ ≥ 0.6").
+  - Requiring the whole CI to be above 0.6 needs a κ near 0.72. With the
+    expected κ of 0.64, that would kill circuit failure most of the time,
+    unless the sample were several times larger than one adjudicator can
+    review.
+  - The point estimate is how a reader will judge it. It fires on noise
+    about 1 time in 5 if the true κ is 0.64. That error is cheap: both
+    outcomes are modelled anyway, so a false kill changes the framing and
+    no work is lost.
+- **Unclear as not a clot.** This matches how the label itself works: an
+  event is a documented clot, and an end with no evidence is a non-event
+  (`unclear_handling_primary: non_event`, 2026-10-02).
+  - Dropping unclear verdicts would drop exactly the hardest circuits and
+    inflate κ.
+  - On a documented clot, an unclear verdict now counts against the rule,
+    which is the conservative direction for the PPV. On an `undocumented`
+    end it agrees with the label. The per-stratum unclear share and the κ
+    without unclear verdicts show how much this choice moves the result.
+- **Primary label decides.** Switching to whichever label adjudicates
+  better, after seeing the result, is a forking path. The reasons the
+  primary leaves out `clots_increasing` still hold: it is the
+  nurse-observation comparator and a candidate feature (2026-10-02).
+
+**When.** The config keys for these rules land with the code that computes
+κ, as for the `inputevents` analysis. `adjudication_min_kappa` is already
+in the config.
+
+**Where it applies.** Plan Parts 5.1 and 13. `config/config.yaml →
+outcomes.circuit_failure.adjudication_min_kappa`. `BEFORE_OSF_CHECKLIST.md`
+§5.
+
+## 2026-10-04 — Adjudication sample
+
+**Decision.** The ~150 circuits for label adjudication (Part 5.1 step 4)
+are a stratified sample by `termination_class`, not a simple random one.
+This settles feasibility §6 item 4.
+
+| Stratum | Classes | Circuits |
+|---|---|--:|
+| `clotted` | `clotted` (the primary event) | 40 |
+| `clots_increasing` | `clots_increasing` | 25 |
+| `undocumented` | `undocumented` | 45 |
+| `other_non_event` | `reached_limit`, `procedure_or_line_change`, `icu_discharge`, `crrt_ended`, `stopped_then_restarted` | 40 |
+
+- **The frame** is every included cohort circuit with a label. `death` is
+  censored (Part 5.3), so it has no label to check and is in no stratum.
+  A test fails if a class in `sql/crrt_circuits.sql` is neither in a
+  stratum nor censored.
+- **Within a stratum**, circuits are drawn at random, so
+  `other_non_event` is proportional across its five classes.
+- **Kappa is weighted back to the frame.** Each circuit counts as its
+  stratum's frame size divided by the circuits drawn. The CI comes from a
+  bootstrap within strata that resamples patients (Part 4.3).
+- **Drawn once** with `reproducibility.random_seed` and frozen before any
+  model is fit (2026-10-04, "Clinical review waits for a clinical
+  mentor"). The adjudicator is not told the strata or the allocation.
+- A second adjudicator, if there is one, reviews a subset drawn by the
+  same strata.
+
+**Drawn 2026-10-04**, before any model was fit, by `crrt.adjudication`
+(stage 3b) on MIMIC-IV 3.1. `crrt_circuits` and `crrt_cohort` were
+rebuilt first; `docs/strobe.md` did not change.
+
+| Stratum | Frame | Drawn | Patients | Weight |
+|---|--:|--:|--:|--:|
+| `clotted` | 1,674 | 40 | 38 | 41.85 |
+| `clots_increasing` | 543 | 25 | 25 | 21.72 |
+| `undocumented` | 1,221 | 45 | 44 | 27.13 |
+| `other_non_event` | 4,099 | 40 | 38 | 102.47 |
+| total | 7,537 | 150 | 137 | |
+
+Fingerprint (SHA-256 of the sorted `stay_id,circuit_start` lines):
+`a1d751af9f20e8cf6579c1ea290f062bd56c0b8ad022dcb18663885dffc99d24`.
+Stage 3b prints it on every run. A rerun that prints anything else means
+the circuits or the cohort changed: the frozen sample is gone, and the
+change is a deviation to log and report.
+
+**Why.** Simulated on the feasibility §2.3 class counts, 4,000 draws each,
+under planning assumptions for how often an adjudicator calls a circuit a
+clot: `clotted` 0.90, `clots_increasing` 0.60, `undocumented` 0.25 (the
+§2.4 mixture estimate), `stopped_then_restarted` 0.15,
+`procedure_or_line_change` 0.10, others 0.03–0.05.
+
+| Design | SD of κ | SD of hidden-clot share in `undocumented` | SD of PPV of `clotted` |
+|---|--:|--:|--:|
+| random 150 | 0.070 | 0.091 | 0.053 |
+| 50 / 25 / 50 / 25 | 0.065 | 0.061 | 0.043 |
+| **40 / 25 / 45 / 40** | **0.059** | **0.065** | **0.048** |
+
+- A random sample is worse on every quantity. It holds about 30
+  `clotted` and 20 `undocumented` circuits.
+- Across reasonable allocations the SD of κ is flat (0.055–0.059 on a
+  grid), so the allocation was chosen for the per-class estimates. It
+  measures the PPV of the label and the share of hidden clots among
+  `undocumented` ends, which is the label's main known error (§2.4).
+
+**For the authors, before pre-registration.** Under the same assumptions,
+the population κ of the primary label is about **0.64**, close to
+`adjudication_min_kappa` (0.6). The primary label leaves out
+`clots_increasing` and keeps `undocumented` as non-events (2026-10-02), and
+an adjudicator will call many of those circuits clots. On sampling noise
+alone, the kill rule fires in about 1 run in 5 under every design. Three
+things must be fixed in the registration. They are settled in the entry
+above, "Kappa rules for adjudication".
+
+**Where it applies.** Plan Parts 5.1 and 13. `config/config.yaml →
+outcomes.circuit_failure.adjudication_strata`, which replaces
+`adjudication_sample_size`. `BEFORE_OSF_CHECKLIST.md` §5.
+
 ## 2026-10-04 — Clinical review waits for a clinical mentor
 
 **Decision.** The project has a faculty mentor but no nephrology or other
