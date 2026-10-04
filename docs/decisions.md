@@ -2,6 +2,201 @@
 
 Every judgment call, with its date (plan Part 14). Newest first.
 
+## 2026-10-04 — Sensitivity analyses
+
+**Decision.** `crrt.sensitivity` builds every sensitivity analysis in the
+config. It is stage 6 of `run_all.sh`. Before it, the `*_sensitivity` keys
+were specified but read by nothing except a test that they exist. The
+repletion results of 2026-10-03, which the authors confirmed for the
+paper, had been computed outside `run_all.sh`. They are now reproduced
+exactly: censor 25,703 / 163,674, ignore 28,345 / 183,119, composite
+45,372 / 183,343, with the same stays and by-era prevalence.
+
+**How.** Each analysis is the primary config with one key changed. It is
+built into a schema named after it, e.g. `horizon_12h`, in the same
+database. While it builds, unqualified names resolve to that schema and then
+to `main`. The stage SQL runs unchanged, and `main` is never written. It
+takes about 11 minutes and 1.6 GB.
+
+- **Label analyses**, which rebuild one label table: horizon 3 / 12 h,
+  blanking 60 min, event `clotted` + `clots_increasing`, undocumented ends
+  excluded, phosphate < 1.5, repletion `ignore` / `composite`. They share
+  `main`'s circuits, cohort and features. The build fails if a label table's
+  grid differs from the primary's, because the features join on it.
+- **Circuit analyses**, which rebuild stages 2–5: maximum downtime 4 / 12 h,
+  segment gap 1 / 4 h. `circuit_id` is a row number, so it names a different
+  circuit in each of these schemas. Their tables must never be joined across
+  schemas.
+- **Handled elsewhere**: the same-admission ICD chronic dialysis flag is a
+  column of `crrt_cohort`. Excluding chronic dialysis is a row filter at
+  model fitting.
+
+A test lists every sensitivity key in the config. A key added without
+being built, or named as handled elsewhere, fails it.
+
+**Results, scored rows** (printed by stage 6):
+
+| Analysis | Circuit failure positive / labelled | Prevalence | Hypophosphatemia positive / labelled | Prevalence |
+|---|--:|--:|--:|--:|
+| primary | 8,639 / 307,493 | 2.8% | 25,703 / 163,674 | 15.7% |
+| horizon 3 h | 4,188 / 312,845 | 1.3% | | |
+| horizon 12 h | 16,435 / 297,506 | 5.5% | | |
+| blanking 60 min | 7,596 / 303,356 | 2.5% | | |
+| + `clots_increasing` | 11,417 / 307,493 | 3.7% | | |
+| undocumented excluded | 8,639 / 272,592 | 3.2% | | |
+| phosphate < 1.5 | | | 10,154 / 213,833 | 4.7% |
+| repletion ignore | | | 28,345 / 183,119 | 15.5% |
+| repletion composite | | | 45,372 / 183,343 | 24.7% |
+| max downtime 4 h | 8,660 / 309,567 | 2.8% | 25,547 / 162,089 | 15.8% |
+| max downtime 12 h | 8,539 / 304,395 | 2.8% | 25,797 / 164,785 | 15.7% |
+| segment gap 1 h | 8,597 / 281,488 | 3.1% | 25,338 / 159,755 | 15.9% |
+| segment gap 4 h | 8,130 / 310,757 | 2.6% | 25,759 / 164,415 | 15.7% |
+
+**For the authors.**
+
+- **The `clots_increasing` event conflicts with its other two roles.** In
+  that analysis, `Clots Increasing` charted up to
+  `windows_hours.clots_increasing_at_end` (3 h) before the end defines the
+  event. Blanking is 30 min, so any feature that reads it leaks the label
+  there. The analysis must drop such a feature, and the nurse-observation
+  comparator (Part 8.1) is undefined in it. No feature reads it yet. This
+  is now noted next to `event_classes_sensitivity` in the config.
+- **Phosphate < 1.5 mostly measures repletion.** 60,464 rows are censored
+  for repletion against 10,154 events. Repletion starts below 2.0, so most
+  orders come before any draw under 1.5. Prevalence in 2020–22 is 2.7%,
+  against 4.6–5.8% before. **Decide** whether this analysis should be
+  reported under the `ignore` handling as well.
+- **A 1 h segment gap tests charting jitter, not the circuit definition.**
+  Machine charting is every 60 min (p90 92 min, feasibility §1), so a 1 h
+  gap cuts ordinary intervals. It makes 13,285 circuits (primary 9,729), and
+  27,249 rows fall in downtime (primary 4,660). Since 2026-10-02 the gap
+  only defines downtime within a circuit, and maximum downtime is the
+  circuit-definition analysis. **Decide** whether the gap analyses (Part
+  4.4) stay.
+- **The shuffled-label control (Part 6.5) runs per analysis.** Each one is
+  a different label or row set. Stage 7 must refit the control for every
+  schema, not only `main`.
+
+**Where it applies.** Plan Parts 4.4, 5, 6.2, 6.5 and 12.
+`src/crrt/sensitivity.py`, `run_all.sh` stage 6, `config/config.yaml`
+(every `*_sensitivity` key), `docs/data_dictionary.md`, "Sensitivity
+analysis schemas".
+
+## 2026-10-04 — Anticoagulation features
+
+**Decision.** `sql/anticoag_features.sql` builds the anticoagulation feature
+group (Part 7, third bullet) as `anticoag_features`, in stage 5 of
+`run_all.sh`. It has one row per `circuit_failure_labels` row, the
+same grid as `machine_features`, and 49 columns:
+
+- citrate rate (228004) and heparin dose (224145), hourly from
+  `chartevents`, with the machine signals' last value and window statistics;
+- ionized calcium (50808), total calcium (50893) and the total:ionized
+  ratio, last value only;
+- `anticoag_class`: citrate / heparin / citrate_heparin / none.
+
+**v1 reads no `inputevents` item.** This departs from feasibility §6
+proposal 8 ("chartevents ∪ inputevents") and from Part 7, which lists the
+calcium replacement rate. Confirmed by the authors 2026-10-04. The reasons
+are two properties of `inputevents`:
+
+- **About half of its rows are lost in 2020–22, the temporal test era.**
+  This is the gap that moved the phosphate repletion censor to orders
+  (2026-10-03). Circuits with a record, by era (2008–10 … 2020–22):
+
+  | Source | Circuits |
+  |---|---|
+  | 228004 citrate > 0 (`chartevents`) | 1,217 / 1,071 / 1,036 / 1,404 / 1,462 |
+  | 227529/227528 ACD-A (`inputevents`) | 1,251 / 953 / 894 / 1,302 / **696** |
+  | 227525 CRRT calcium (`inputevents`) | 1,578 / 1,110 / 1,258 / 1,642 / **829** |
+
+  No new itemid replaces them in 2020–22. A model trained on earlier eras
+  would read "not recorded" as "not given" in the test era.
+- **A row is stored around the end of its bag or rate segment.** An ACD-A
+  row is one bag. It runs a median 298 min and is stored a median 309 min
+  after it starts; 13% are stored within an hour of starting. CRRT calcium
+  is stored a median 71 min after its start, and 48% within an hour. Under
+  the `storetime` rule (Part 6.4), the bag that is running now is
+  invisible. The `chartevents` items are stored a median 7–10 min after
+  charttime.
+
+**What this costs.**
+
+- **No calcium replacement rate.** Rising calcium requirement is the
+  citrate-accumulation signal. Ionized calcium and the total:ionized ratio
+  carry part of it.
+- **Citrate is unknown, not 0, in 195 circuits of 2008–10.** These circuits
+  have ACD-A in `inputevents` but 228004 is never charted. That is why
+  `anticoag_class` is null in 18.6% of scored 2008–10 rows, against
+  1.2–2.1% in later eras.
+- **`none` is contaminated.** Before 2020, where `inputevents` is complete,
+  18.6% of scored `none` rows have a 225152 heparin infusion running that
+  224145 does not show, and 4.9% argatroban or bivalirudin. Direct thrombin
+  inhibitors (241 circuits) are not represented at all. A subgroup analysis
+  by anticoagulation (Part 10) must name this. **The authors should
+  decide** whether a sensitivity analysis adds `inputevents` in the
+  training eras only.
+
+**The judgment calls.**
+
+- **224145 is the heparin signal, and 225152 is its duplicate.** At 77–90%
+  of rows with 224145 > 0 before 2020, a 225152 infusion is running, at the
+  same rate within 5% in most of them. The co-occurrence falls to 45% in
+  2020–22 only because 225152 loses rows. The 2026-10-02 itemid review
+  called 224145 a separate circuit dose. That is corrected in
+  `config/itemid_review.yaml`. Pre-filter heparin (230044) is in under 10
+  stays.
+- **0 is a value.** 228004 = 0 means citrate off, which is 24% of rows, and
+  224145 = 0 is 71% of rows. `anticoag_class` is `none` only when citrate is
+  charted as 0. With citrate not charted, it is null, because "not charted"
+  is the 2008–10 gap, not an off pump.
+- **Calcium is the patient's, not the filter's.** Results are matched on
+  `subject_id` and count from before `circuit_start`, back to the longest
+  window (12 h). Both are drawn about every 6 h. A 12 h window rarely holds
+  the three points a trend needs, so the labs carry only their last value.
+- **The ratio pairs each total calcium with the nearest ionized calcium
+  within 60 min,** the feasibility §4 rule. 93% of total calcium results
+  inside circuits have one. The pair counts once both are stored; total
+  calcium is stored a median 65 min after its draw, ionized 4 min.
+- **Calcium bounds come from the data**, cut where the continuous tail ends,
+  as for citrate and heparin. They go to the mentor's clinical plausibility
+  review. Rows inside included circuits:
+
+  | itemid | Item, unit | Bound | Rows | Below (circuits) | Above (circuits) |
+  |---|---|---|--:|--:|--:|
+  | 50808 | Free Calcium, mmol/L | 0.6 to 2.0 | 64,778 | 74 (42) | <10 |
+  | 50893 | Calcium, Total, mg/dL | 4 to 15 | 42,718 | <10 | 11 (11) |
+
+  Below 0.6 ionized there is a hump around 0.3 mmol/L. That is the
+  post-filter target on citrate, so these are circuit samples, not the
+  patient. 0.6 is the feasibility §4 cut. A real systemic value of
+  0.5–0.6, from severe accumulation, would be lost. That is 24 rows at
+  most.
+
+**Coverage, scored circuit-failure rows (317,028).**
+
+| Signal | Has last | Median last | Median hours since |
+|---|--:|--:|--:|
+| `citrate_rate` | 93.2% | 180 ml/hr | 1 |
+| `heparin_dose` | 66.4% | 0 units/hr | 1 |
+| `ionized_calcium` | 99.4% | 1.11 mmol/L | 3 |
+| `total_calcium` | 90.8% | 9.0 mg/dL | 5 |
+| `calcium_ratio` | 87.2% | 2.01 | 5 |
+
+| `anticoag_class` | 2008–10 | 2011–13 | 2014–16 | 2017–19 | 2020–22 |
+|---|--:|--:|--:|--:|--:|
+| citrate | 55.3% | 70.8% | 62.3% | 59.7% | 62.6% |
+| citrate_heparin | 6.9% | 9.1% | 7.3% | 8.6% | 14.2% |
+| heparin | 7.7% | 6.3% | 11.8% | 8.2% | 7.2% |
+| none | 11.5% | 11.7% | 16.4% | 21.7% | 14.8% |
+| unknown | 18.6% | 2.1% | 2.1% | 1.7% | 1.2% |
+
+**Where it applies.** Plan Parts 6.4, 7 and 10. `config/config.yaml →
+features.anticoag_signals`, `calcium_labs`, `calcium_pair_minutes`,
+`calcium_mg_dl_per_mmol_l`, `plausibility_bounds` (50808, 50893).
+`config/itemid_review.yaml` (224145, 225152). Columns are defined in
+`docs/data_dictionary.md`, "`anticoag_features`".
+
 ## 2026-10-03 — Machine features
 
 **Decision.** `sql/machine_features.sql` builds the machine/circuit feature

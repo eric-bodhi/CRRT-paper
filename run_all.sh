@@ -10,7 +10,8 @@
 # Usage: ./run_all.sh
 #
 # Implemented so far: database build, the itemid evidence sweep, circuits, the
-# cohort with its STROBE flow, the outcome labels, and the machine features.
+# cohort with its STROBE flow, the outcome labels, the machine and
+# anticoagulation features, and the sensitivity analyses.
 
 set -euo pipefail
 
@@ -39,13 +40,22 @@ uv run python -m crrt.cohort
 uv run python -m crrt.outcomes
 
 # 5. Features (Part 7): one row per prediction row, from data stored by the
-#    prediction time -> table machine_features. Clinical groups to follow.
+#    prediction time -> tables machine_features and anticoag_features.
+#    Clinical groups to follow.
 #    Prints aggregate coverage only.
 uv run python -m crrt.features
 
+# 6. Sensitivity analyses: every `*_sensitivity` value in the config, each in
+#    its own schema (e.g. horizon_12h.circuit_failure_labels). Label analyses
+#    rebuild one label table and share the primary features; circuit
+#    analyses (max downtime, segment gap) rebuild stages 2-5. Prints
+#    aggregate counts and a comparison with the primary only.
+uv run python -m crrt.sensitivity
+
 # Stages below are not implemented yet. Uncomment as each lands.
 #
-# 6. Leakage checks    (Part 6.4-6.5)  checklist + shuffled-label control
-# 7. Models            (Part 8)        baseline -> LR -> GBM -> temporal
-# 8. Evaluation        (Part 9, 10)    nested CV, calibration, subgroups
-# 9. Figures + tables  (Part 16)
+# 7. Leakage checks    (Part 6.4-6.5)  checklist + shuffled-label control,
+#                                      for the primary and every analysis
+# 8. Models            (Part 8)        baseline -> LR -> GBM -> temporal
+# 9. Evaluation        (Part 9, 10)    nested CV, calibration, subgroups
+# 10. Figures + tables (Part 16)

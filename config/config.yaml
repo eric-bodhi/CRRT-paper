@@ -279,6 +279,10 @@ outcomes:
     # documented Clotted only, which leaves nurse-charted Clots Increasing
     # free to be a feature and the comparator rule (Part 8.1). Sensitivity:
     # add clots_increasing. Locked 2026-10-02 (docs/decisions.md).
+    # In the sensitivity analysis, Clots Increasing charted up to
+    # windows_hours.clots_increasing_at_end before the end IS the event, so
+    # no feature may read it and the nurse-observation comparator is
+    # undefined there (decisions.md 2026-10-04, "Sensitivity analyses").
     event_classes_primary: [clotted]
     event_classes_sensitivity: [clotted, clots_increasing]
     # Circuits that end in death can never become events; they are censored
@@ -397,6 +401,14 @@ features:                                   # Plan Part 7
     # Not on the machine in these units. The tail is continuous to 4,000
     # units/hr and sparse beyond it, half of that above 10,000.
     224145: [0, 4000]       # Heparin Dose (per hour), units.
+    # hosp.labevents, not in the hand review (labs come from labevents, never
+    # the chartevents copies). Cut where the continuous tail ends, as for
+    # citrate and heparin. Decided 2026-10-04 (docs/decisions.md,
+    # "Anticoagulation features"); to the mentor's plausibility review.
+    # Below 0.6 is a hump around 0.3, the post-filter target on citrate: a
+    # circuit sample, not the patient. 0.6 is the feasibility §4 cut.
+    50808: [0.6, 2.0]       # Free Calcium (ionized), mmol/L.
+    50893: [4, 15]          # Calcium, Total, mg/dL.
 
   # Raw circuit pressures only: a value past a bound by at most this much is
   # the sensor at its limit, charted as a round number (filter pressure 500
@@ -431,6 +443,34 @@ features:                                   # Plan Part 7
     current_goal: 225183                  # mL, net-balance goal per hour
   # 227290 CRRT mode, Text. Carried as its last charted value.
   crrt_mode_itemid: 227290
+
+  # The anticoagulation feature group (Part 7, third bullet), built by
+  # sql/anticoag_features.sql. Decided 2026-10-04 (docs/decisions.md,
+  # "Anticoagulation features"). Hourly chartevents only: the inputevents
+  # records (ACD-A, CRRT calcium, heparin, argatroban, bivalirudin) lose
+  # about half their rows in 2020-22, the temporal test era, and are stored
+  # around the end of each bag or rate segment, not its start.
+  # Signal name: chartevents itemid, with the machine signals' window
+  # statistics. Each needs an entry in plausibility_bounds.
+  anticoag_signals:
+    citrate_rate: 228004    # ml/hr ACD-A. 0 = citrate off, not missing.
+    # The heparin infusion (inputevents 225152) as charted hourly on the
+    # CRRT flowsheet, not a separate pre-filter dose: a 225152 infusion is
+    # running at 77-90% of positive rows before 2020, at the same rate
+    # within 5% in most of them.
+    heparin_dose: 224145    # units/hr
+  # Signal name: hosp.labevents itemid. Last value only: drawn about every
+  # 6 h, so a 12 h window rarely holds the min_points_for_trend.
+  calcium_labs:
+    ionized_calcium: 50808  # Free Calcium, blood gas, mmol/L
+    total_calcium: 50893    # Calcium, Total, chemistry, mg/dL
+  # A total calcium is paired with the ionized calcium drawn nearest to it,
+  # if no further than this, for the total:ionized ratio. The feasibility §4
+  # window: 93% of total calcium results inside circuits have one.
+  calcium_pair_minutes: 60
+  # mg/dL per mmol/L of calcium (molar mass 40.08 g/mol). Puts total calcium
+  # in the ionized calcium's unit before the ratio.
+  calcium_mg_dl_per_mmol_l: 4.008
 
 
 reporting:                                  # Plan Part 1.4
