@@ -142,17 +142,19 @@ def test_plausibility_bounds_are_ordered_and_reviewed(config):
     review included (Part 2.3): a bound on an unreviewed item is a bound on
     a variable no feature may read. Labevents itemids are outside the review
     by design (labs come from labevents, not its chartevents copies); they
-    are allowed only as a named calcium lab or a lab in a lab group."""
+    are allowed only as a named calcium lab, a lab in a lab group or a
+    hemodynamic lab."""
     reviewed = yaml.safe_load(ITEMID_REVIEW_PATH.read_text())["items"]
     features = config["features"]
-    labs = set(features["calcium_labs"].values()) | {
+    labs = set(features["calcium_labs"].values()) | set(features["hemodynamic_labs"].values()) | {
         itemid for group in features["lab_groups"].values() for itemid in group.values()}
     for itemid, (low, high) in features["plausibility_bounds"].items():
         assert low < high, itemid
         assert itemid in labs or reviewed[itemid]["verdict"] == "include", itemid
 
 
-@pytest.mark.parametrize("group", ["machine_signals", "anticoag_signals", "calcium_labs"])
+@pytest.mark.parametrize("group", ["machine_signals", "anticoag_signals", "calcium_labs",
+                                   "hemodynamic_labs"])
 def test_feature_signals_are_bounded(config, group):
     """Every feature signal is read through its plausibility bound (Part 7);
     an item without one would reach the features uncleaned."""

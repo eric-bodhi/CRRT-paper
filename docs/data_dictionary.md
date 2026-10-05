@@ -111,6 +111,7 @@ machine items".
 | Machine items: 224144 Blood Flow; 224149, 224150, 224151, 224152 the raw circuit pressures; 229247 TMP; 229248 Pressure Drop; 224153, 228006, 228005, 224154 replacement, post-filter, PBP and dialysate rates; 224191 Hourly Patient Fluid Removal; 226457 Ultrafiltrate Output; 225183 Current Goal; 228004 Citrate (ACD-A); 224145 Heparin Dose | A value outside [low, high] (inclusive) is set to missing. | `features.plausibility_bounds` |
 | Calcium labs (`labevents`): 50808 Free Calcium, 50893 Calcium, Total | As above. Decision: `docs/decisions.md` 2026-10-04, "Anticoagulation features". | `features.plausibility_bounds` |
 | Coagulation/hematology and chemistry labs (`labevents`): the 14 items of `features.lab_groups` | As above. Decision: `docs/decisions.md` 2026-10-04, "Laboratory features". | `features.plausibility_bounds` |
+| Hemodynamics: 220052, 225312, 220181 mean pressures; 220045 Heart Rate; 223762, 223761 Temperature (each in its own unit); 50813 Lactate (`labevents`) | As above. Decision: `docs/decisions.md` 2026-10-04, "Hemodynamic features". | `features.plausibility_bounds` |
 | Raw circuit pressures 224149, 224150, 224151, 224152 | Exception: a value past a bound by at most the margin is set to the bound (a sensor at its limit). Further out, missing. | `features.pressure_clip_margin_mmhg`, `features.pressure_clip_itemids` |
 
 TMP and pressure drop derived from the raw pressures (feasibility §1) are
@@ -551,6 +552,58 @@ decision).
 | `catheter_age_days` | days, integer | The date of `pred_time` − the insertion date at the latest `charttime` that counts. 0 on the day of insertion. Null if none. |
 | `catheter_insertion_date_hours_since_last` | hours | `pred_time` − the `charttime` of that insertion date. |
 
+## `hemodynamic_features`
+
+The hemodynamics feature group (Part 7, fifth bullet). One row per
+`circuit_failure_labels` row, scored or not: the same grid as
+`machine_features`. Built by `sql/hemodynamic_features.sql`, run from
+`uv run python -m crrt.features` (stage 5 of `run_all.sh`). Decision:
+`docs/decisions.md` 2026-10-04, "Hemodynamic features".
+
+**Sources.** The items of each vital are mimic-code's `vitalsign` concept.
+
+| Signal | Table | itemid | Unit |
+|---|---|---|---|
+| `map` | `chartevents` | 220052 Arterial Blood Pressure mean, 225312 ART BP Mean, 220181 Non Invasive Blood Pressure mean | mmHg |
+| `heart_rate` | `chartevents` | 220045 Heart Rate | bpm |
+| `temperature` | `chartevents` | 223762 Temperature Celsius; 223761 Temperature Fahrenheit, converted | °C |
+| `lactate` | `labevents` | 50813 Lactate (blood gas, the only lactate item) | mmol/L |
+
+Part 7 also lists the norepinephrine-equivalent dose. It is left out
+(`inputevents`); see the decision.
+
+**Cleaning rules.**
+
+- Vitals are the stay's, matched on `stay_id`, so a value charted before
+  `circuit_start` (on the previous filter, or before CRRT) counts, back to
+  the longest window.
+- A vital counts at *t* only if `charttime ≤ t` and `storetime ≤ t`. It must
+  be inside its item's plausibility bound, in the item's own unit. Out of
+  bound is missing, never clipped. Unit swaps in the temperature items
+  (37 in the °F item) are therefore missing, not repaired.
+- 223761 is put in °C as (value − `features.fahrenheit_freezing_point`) /
+  `features.fahrenheit_per_celsius`.
+- Values of one signal at one `charttime`, from one item or several (e.g.
+  arterial and non-invasive mean pressure), are averaged and available at
+  the latest `storetime`.
+- Lactate follows `lab_features`' rules: the patient's results, matched on
+  `subject_id`, counting if `charttime ≤ t`, `storetime ≤ t` and
+  `charttime ≥ t −` `features.lab_lookback_hours`.
+
+**Columns.** `<v>` is each vital (`map`, `heart_rate`, `temperature`), `<w>`
+each of `features.window_hours`.
+
+| Column | Type / unit | Definition |
+|---|---|---|
+| `circuit_id`, `pred_time` | | As in `circuit_failure_labels`. |
+| `<v>_last` | signal unit | The value at the latest `charttime` in [`pred_time` − longest window, `pred_time`] that counts. Null if none. |
+| `<v>_hours_since_last` | hours | `pred_time` − the `charttime` of `<v>_last`. |
+| `<v>_<w>h_n` | count | Values in [`pred_time` − `<w>` h, `pred_time`]. 0, never null, if none. |
+| `<v>_<w>h_mean`, `_min`, `_max` | signal unit | Over those values. Null if none. |
+| `<v>_<w>h_slope` | signal unit per hour | Least squares on `charttime`. Null below `features.min_points_for_trend` values. |
+| `<v>_<w>h_var` | signal unit² | Sample variance. Null below `features.min_points_for_trend` values. |
+| `lactate_last`, `lactate_hours_since_last`, `lactate_delta`, `lactate_delta_hours` | mmol/L, hours | As `<l>_last` … `<l>_delta_hours` in `lab_features`. |
+
 ## Sensitivity analysis schemas
 
 Built by `uv run python -m crrt.sensitivity` (stage 6 of `run_all.sh`).
@@ -567,12 +620,13 @@ rules of the `main` tables of the same name.
 | `unclear_exclude` | `outcomes.circuit_failure.unclear_handling_primary` | `circuit_failure_labels` |
 | `phosphate_below_1_5` | `outcomes.hypophosphatemia.moderate_mg_dl` | `hypophos_labels` |
 | `repletion_<handling>` | `outcomes.hypophosphatemia.repletion_handling_primary` | `hypophos_labels` |
-| `max_downtime_<h>h` | `circuits.max_downtime_hours` | `crrt_circuits` through `access_features` |
-| `segment_gap_<h>h` | `sessionization.gap_hours` | `crrt_circuits` through `access_features` |
+| `max_downtime_<h>h` | `circuits.max_downtime_hours` | `crrt_circuits` through `hemodynamic_features` |
+| `segment_gap_<h>h` | `sessionization.gap_hours` | `crrt_circuits` through `hemodynamic_features` |
 
 - A label analysis has the primary's grid (checked when it is built), so
   it joins `main.machine_features`, `main.anticoag_features`,
-  `main.lab_features` and `main.access_features` on (`circuit_id`,
+  `main.lab_features`, `main.access_features` and
+  `main.hemodynamic_features` on (`circuit_id`,
   `pred_time`).
 - A circuit analysis renumbers `circuit_id`. Join its tables only to tables
   in the same schema.
