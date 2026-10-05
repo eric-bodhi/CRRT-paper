@@ -1,33 +1,28 @@
-"""Set up the adjudication app on the adjudicator's own computer (Part 5.1
-step 4), on Windows, Mac or Linux. Read docs/adjudication_guide.md first.
+"""Build the adjudication pages on the adjudicator's own computer, from
+their own MIMIC-IV download (Part 5.1 step 4). Read
+docs/adjudication_guide.md first.
 
   adjudicate.bat (Windows) or ./adjudicate.sh (Mac, Linux), which run
   uv run python -m crrt.adjudication_setup
 
-The person setting up runs it once. After that the adjudicator only
-double-clicks the Adjudicate launcher this puts on the desktop. In order:
+This is the fallback. The usual way needs none of it: a team member exports
+the pages as a package that runs on Python alone (docs/decisions.md
+2026-10-04, "Hand the pages to a credentialed adjudicator" and "The package
+runs on Python alone"). This needs uv, which Windows 11's Smart App Control
+blocks. In order:
 
 1. Stops if this folder is inside a cloud-synced folder (OneDrive, Dropbox,
    iCloud, Google Drive). Syncing MIMIC-IV to a cloud breaks the DUA, and
    Windows often puts Desktop and Documents in OneDrive.
-2. Gets the pages, in one of two ways:
-   - **From the package** (docs/decisions.md 2026-10-04, "Hand the pages to
-     a credentialed adjudicator"). This is the usual way.
-     `crrt.adjudication_viewer export` writes the package on a team member's
-     machine, and it is copied into this folder. Setup unpacks it into
-     `paths.adjudication_dir`, keeping any verdict sheet already there, so
-     a newer package never loses answers. No MIMIC-IV download and no
-     database.
-   - **Built here**, asked for only when there is no package and no pages.
-     Setup downloads from `paths.mimic_url` the MIMIC-IV files
-     crrt.build_db reads, and no others, with the adjudicator's own
-     login, read hidden and never stored. A file keeps its real name only
-     after its SHA-256 matches PhysioNet's SHA256SUMS.txt; a stopped
-     download carries on from its `.part` file. Setup then runs the stages
-     the sample needs: the database (only if there is none), circuits,
-     cohort, the frozen sample, then the pages, which refuse a sample
-     whose fingerprint is not the frozen one.
-3. Writes the launcher, which runs `crrt.adjudication_viewer serve`.
+2. Downloads from `paths.mimic_url` the MIMIC-IV files crrt.build_db reads,
+   and no others, with the adjudicator's own login, read hidden and never
+   stored. A file keeps its real name only after its SHA-256 matches
+   PhysioNet's SHA256SUMS.txt; a stopped download carries on from its
+   `.part` file when setup is run again.
+3. Runs the stages the sample needs: the database (only if there is none),
+   circuits, cohort, the frozen sample, then the pages, which refuse a
+   sample whose fingerprint is not the frozen one.
+4. Writes the launcher, which runs `crrt.adjudication_viewer serve`.
 """
 
 import base64
@@ -39,17 +34,13 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
-import zipfile
 from http import HTTPStatus
 from pathlib import Path
 
 from crrt import build_db, config
-from crrt.adjudication_viewer import SHEETS, package_name
+from crrt.adjudication_app import synced
 
 SUMS = "SHA256SUMS.txt"
-# Path parts that mean a folder is synced to a cloud, matched without case.
-CLOUD_MARKERS = ("onedrive", "dropbox", "google drive", "googledrive", "icloud",
-                 "cloudstorage", "mobile documents")
 CHUNK_BYTES = 1 << 20
 TIMEOUT_SECONDS = 60
 # PhysioNet asks for a login only from wget, its documented download tool:
@@ -57,11 +48,6 @@ TIMEOUT_SECONDS = 60
 # 403 to Python's and curl's default agents, with or without a login. So the
 # download names itself as wget, and says what it really is in the comment.
 USER_AGENT = "Wget/1.21.4 (crrt-adjudication-setup)"
-
-
-def synced(path: Path) -> bool:
-    """Whether `path` is inside a cloud-synced folder."""
-    return any(m in part.lower() for part in path.parts for m in CLOUD_MARKERS)
 
 
 def needed() -> list[str]:
@@ -160,17 +146,6 @@ def stages(cfg: dict) -> None:
     run("crrt.adjudication_viewer", "build")
 
 
-def unpack(package: Path, out: Path) -> None:
-    """Unpack the exported pages into `out`. A verdict sheet already there is
-    kept: unpacking a newer package replaces the pages, never the answers."""
-    sheets = {sheet for sheet, _ in SHEETS.values()}
-    out.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(package) as z:
-        for member in z.namelist():
-            if not (member in sheets and (out / member).exists()):
-                z.extract(member, out)
-
-
 def desktop() -> Path:
     """The desktop folder. On Windows it can be moved, often into OneDrive,
     so ask Windows where it is."""
@@ -221,19 +196,8 @@ def main() -> None:
         raise SystemExit(f"This folder is inside a cloud-synced folder:\n  {repo}\n"
                          "MIMIC-IV must never be synced to a cloud (PhysioNet DUA). Move the folder "
                          f"somewhere that is not synced, such as {Path.home() / 'crrt'}, and run setup again.")
-    out = config.path(cfg, "adjudication_dir")
-    package = repo / package_name(cfg)
-    if package.exists():
-        unpack(package, out)
-        print(f"Unpacked the circuit pages from {package.name}. You can delete that file now.")
-    elif not (out / "index.html").exists():
-        print(f"There is no {package.name} in {repo}, and no circuit pages yet.")
-        answer = input("Download MIMIC-IV with the adjudicator's own PhysioNet login and build the "
-                       "pages on this computer instead? It takes hours and about 35 GB. [y/N] ")
-        if answer.strip().lower() != "y":
-            raise SystemExit(f"Copy {package.name} into {repo}, then run setup again.")
-        download(cfg)
-        stages(cfg)
+    download(cfg)
+    stages(cfg)
     path = place_launcher(repo)
     where = "on the desktop" if path.parent != repo else f"in {repo}"
     print(f"\nSetup done. To adjudicate, double-click Adjudicate {where}.")

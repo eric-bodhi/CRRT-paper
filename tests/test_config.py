@@ -48,6 +48,7 @@ REQUIRED_KEYS = [
     "outcomes.circuit_failure.adjudication_view_hours",
     "outcomes.circuit_failure.adjudication_verdicts",
     "outcomes.circuit_failure.adjudication_port",
+    "outcomes.circuit_failure.adjudication_windows_python",
     "outcomes.circuit_failure.event_classes_primary",
     "outcomes.circuit_failure.event_classes_sensitivity",
     "outcomes.circuit_failure.competing_risk_classes",

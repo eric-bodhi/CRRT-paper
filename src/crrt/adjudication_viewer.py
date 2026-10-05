@@ -12,23 +12,18 @@ credential, gets them in person on an encrypted drive (docs/decisions.md
       practice circuits and two verdict sheets (verdicts.csv,
       practice_verdicts.csv). Refuses to run unless the sample matches
       `adjudication_sample_sha256`. An existing sheet is never overwritten.
+      Also writes what makes the folder run on its own: crrt.adjudication_app,
+      its manifest.json, a launcher per platform and the guide.
   uv run python -m crrt.adjudication_viewer export
-      Build, then pack the pages with empty verdict sheets into
+      Build, then pack that folder, without its verdict sheets, into
       adjudication_pages_<sample>.zip, for handing to a credentialed
       adjudicator in person (docs/decisions.md 2026-10-04, "Hand the pages
       to a credentialed adjudicator"). This machine's verdicts and notes
       are never in it.
-  uv run python -m crrt.adjudication_viewer serve
-      What the desktop launcher runs (crrt.adjudication_setup). Serves the
-      pages on 127.0.0.1 and opens the browser. Each verdict button saves to
-      the sheet at once, so a revisited page shows its verdict; once every
-      circuit has one, the file to send is written. A page opened from disk
-      cannot write a file, which is why this is a server; it uses only the
-      standard library.
-  uv run python -m crrt.adjudication_viewer check
-      Validates verdicts.csv. Once every circuit has a verdict, writes the
-      file to send back: review_order and verdict only. The notes column
-      stays on this machine, because a note can quote a charted value.
+  uv run python -m crrt.adjudication_viewer serve | check
+      crrt.adjudication_app on this machine's pages: serve them and save each
+      verdict click, or validate verdicts.csv and, once it is complete,
+      write the file to send back.
 
 A page shows the circuit as charted, from its start (at most
 `adjudication_view_hours.before_end` back) to `after_end` past its end:
@@ -45,39 +40,42 @@ slots are under 3:1 against the surface, so every line is direct-labelled
 and every value is also in the table below the chart.
 """
 
-import csv
-import io
+import hashlib
 import json
 import math
-import os
-import subprocess
+import shutil
 import sys
-import threading
 import urllib.request
-import webbrowser
 import zipfile
 from collections import defaultdict
 from datetime import datetime
-from functools import partial
 from html import escape
-from http import HTTPStatus
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
 import duckdb
 
+from crrt import adjudication_app as app
 from crrt import config
 from crrt.adjudication import fingerprint
 
-SHEET = "verdicts.csv"
-PRACTICE_SHEET = "practice_verdicts.csv"
-# Page kind: (sheet, its key column).
-SHEETS = {"sample": (SHEET, "review_order"), "practice": (PRACTICE_SHEET, "practice_order")}
-# What /api/ping answers, so a second double-click can tell this app from
-# another program on the port.
-APP = "crrt-adjudication"
-PING_SECONDS = 2
+GUIDE = "Adjudication guide.txt"
+# Double-click launchers for the pages folder, one per platform. On Windows
+# it runs the Python that export packs in (python\), so nothing is installed;
+# a folder built without it falls back to an installed Python. On a Mac or
+# Linux it runs python3 (docs/adjudication_guide.md).
+LAUNCHERS = {
+    "Adjudicate.bat": ('@echo off\r\ncd /d "%~dp0"\r\n'
+                       'if exist "python\\python.exe" goto packed\r\n'
+                       "where py >nul 2>nul\r\n"
+                       "if %errorlevel%==0 (py -3 adjudication_app.py) else (python adjudication_app.py)\r\n"
+                       "goto done\r\n:packed\r\npython\\python.exe adjudication_app.py\r\n:done\r\npause\r\n"),
+    "Adjudicate.command": '#!/bin/bash\ncd "$(dirname "$0")" || exit 1\nexec python3 adjudication_app.py\n',
+    "Adjudicate.sh": '#!/bin/bash\ncd "$(dirname "$0")" || exit 1\nexec python3 adjudication_app.py\n',
+}
+# Everything in an exported package besides the pages and the packed Python.
+# A list of what goes in, not of what stays out, so nothing else can leak.
+PACKAGE_FILES = (app.MANIFEST, "adjudication_app.py", GUIDE, *LAUNCHERS)
 
 # Chart geometry, in px.
 W, H = 880, 260
@@ -544,62 +542,75 @@ def build(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any], out: Path) -> Non
             (folder / file_of(p)).write_text(render(p, prev, nxt, len(sample), cfg), encoding="utf-8")
     (out / "index.html").write_text(index(
         sample, "Circuits to adjudicate",
-        'Read docs/adjudication_guide.md first. Practice circuits for the training session: '
+        f'Read the guide first: "{GUIDE}", in this folder. Practice circuits for the training session: '
         '<a href="practice/index.html">practice</a>.', cfg), encoding="utf-8")
     (out / "practice" / "index.html").write_text(index(
         practice, "Practice circuits", 'For the calibration session. These verdicts are not counted. '
         '<a href="../index.html">Back to the circuits to adjudicate</a>.', cfg), encoding="utf-8")
-    for kind, group in (("sample", sample), ("practice", practice)):
-        sheet, key = SHEETS[kind]
-        if not (out / sheet).exists():
-            write_sheet(out / sheet, key, {p["n"]: ["", ""] for p in group})
+    # The rest of a runnable folder: the app, its settings, the launchers and
+    # the guide, so the folder runs anywhere Python does.
+    settings = manifest(cfg, len(practice))
+    (out / app.MANIFEST).write_text(json.dumps(settings, indent=2), encoding="utf-8")
+    app.ensure_sheets(settings, out)
+    shutil.copyfile(app.__file__, out / "adjudication_app.py")
+    shutil.copyfile(config.REPO_ROOT / "docs" / "adjudication_guide.md", out / GUIDE)
+    for name, text in LAUNCHERS.items():
+        (out / name).write_text(text, encoding="utf-8", newline="")
+        if not name.endswith(".bat"):
+            (out / name).chmod(0o755)
     print(f"wrote {len(sample)} circuit pages and {len(practice)} practice pages to {out}")
-    print("start the app with: uv run python -m crrt.adjudication_viewer serve")
+    print(f"open them by double-clicking Adjudicate in {out}")
 
 
-def read_sheet(path: Path) -> dict[int, list[str]]:
-    """{order: [verdict, note]}. Empty if the sheet does not exist yet."""
-    if not path.exists():
-        return {}
-    with path.open(newline="", encoding="utf-8") as f:
-        return {int(r[0]): [r[1], r[2]] for r in list(csv.reader(f))[1:]}
-
-
-def sheet_text(key: str, rows: dict[int, list[str]]) -> str:
-    text = io.StringIO()
-    w = csv.writer(text)
-    w.writerow([key, "verdict", "note"])
-    w.writerows([n, verdict, note] for n, (verdict, note) in sorted(rows.items()))
-    return text.getvalue()
-
-
-def write_sheet(path: Path, key: str, rows: dict[int, list[str]]) -> None:
-    """Write the whole sheet to a temporary file, then swap it in, so a
-    crash never leaves half a sheet."""
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(sheet_text(key, rows), encoding="utf-8", newline="")
-    os.replace(tmp, path)
+def manifest(cfg: dict[str, Any], practice_size: int) -> dict[str, Any]:
+    """The settings the app reads instead of config/config.yaml."""
+    cf = cfg["outcomes"]["circuit_failure"]
+    return {"sample_sha256": cf["adjudication_sample_sha256"], "sample_size": sample_size(cfg),
+            "practice_size": practice_size, "verdicts": cf["adjudication_verdicts"],
+            "port": cf["adjudication_port"]}
 
 
 def package_name(cfg: dict[str, Any]) -> str:
-    """The export's file name. It names the sample, so setup on the
-    adjudicator's machine accepts only the package for its own config."""
+    """The export's file name. It names the sample, so the package cannot be
+    mistaken for one built from another sample."""
     return f"adjudication_pages_{cfg['outcomes']['circuit_failure']['adjudication_sample_sha256'][:12]}.zip"
 
 
+def windows_python(cfg: dict[str, Any], folder: Path) -> Path:
+    """python.org's embeddable Python for Windows
+    (`adjudication_windows_python`), downloaded once into `folder` and
+    checked against its pinned SHA-256 on every export."""
+    py = cfg["outcomes"]["circuit_failure"]["adjudication_windows_python"]
+    path = folder / py["url"].rsplit("/", 1)[1]
+    if not path.exists():
+        part = path.with_name(path.name + ".part")
+        urllib.request.urlretrieve(py["url"], part)
+        part.replace(path)
+    if hashlib.sha256(path.read_bytes()).hexdigest() != py["sha256"]:
+        path.unlink()
+        raise SystemExit(f"{path.name} does not match its pinned SHA-256 and was deleted. Run export again.")
+    return path
+
+
 def export(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any], out: Path) -> Path:
-    """Build the pages, then pack them for a credentialed adjudicator
-    (docs/decisions.md 2026-10-04, "Hand the pages to a credentialed
-    adjudicator"). The package holds every page and empty verdict sheets,
-    never this machine's verdicts or notes. It is written next to `out`,
-    inside the gitignored data/."""
+    """Build the pages, then pack the runnable folder for a credentialed
+    adjudicator (docs/decisions.md 2026-10-04, "Hand the pages to a
+    credentialed adjudicator"). The package holds the pages,
+    `PACKAGE_FILES` and, under python/, the Windows Python, so a Windows
+    adjudicator installs nothing. It holds no verdict sheet: never this machine's
+    verdicts or notes, and nothing that could overwrite the adjudicator's
+    when a newer package is unzipped over their folder; the app creates the
+    sheets empty. It is written next to `out`, inside the gitignored data/."""
     build(con, cfg, out)
     package = out.parent / package_name(cfg)
     with zipfile.ZipFile(package, "w", zipfile.ZIP_DEFLATED) as z:
         for page in sorted(out.rglob("*.html")):
             z.write(page, page.relative_to(out).as_posix())
-        for sheet, key in SHEETS.values():
-            z.writestr(sheet, sheet_text(key, {n: ["", ""] for n in read_sheet(out / sheet)}))
+        for name in PACKAGE_FILES:
+            z.write(out / name, name)  # Keeps the launchers' executable bit.
+        with zipfile.ZipFile(windows_python(cfg, out.parent)) as py:
+            for member in py.namelist():
+                z.writestr(f"python/{member}", py.read(member))
     print(f"wrote {package}\nCopy it to an encrypted USB drive and hand it over in person. "
           "Never by email, cloud storage or chat (docs/adjudication_guide.md).")
     return package
@@ -607,193 +618,6 @@ def export(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any], out: Path) -> Pa
 
 def sample_size(cfg: dict[str, Any]) -> int:
     return sum(s["circuits"] for s in cfg["outcomes"]["circuit_failure"]["adjudication_strata"].values())
-
-
-def send_file(cfg: dict[str, Any], out: Path) -> Path:
-    """The one file that goes back to the team."""
-    return out / f"verdicts_send_{cfg['outcomes']['circuit_failure']['adjudication_sample_sha256'][:12]}.csv"
-
-
-def check(cfg: dict[str, Any], out: Path, n_expected: int) -> Path | None:
-    """Validate the sheet. Returns the file to send once it is complete."""
-    allowed = set(cfg["outcomes"]["circuit_failure"]["adjudication_verdicts"])
-    with (out / SHEET).open(newline="", encoding="utf-8") as f:
-        rows = list(csv.DictReader(f))
-    orders = [r["review_order"] for r in rows]
-    expected = [str(k) for k in range(1, n_expected + 1)]
-    if sorted(orders, key=int) != expected:
-        raise ValueError(f"{SHEET} must have review_order 1 to {n_expected}, each once")
-    bad = [r["review_order"] for r in rows if r["verdict"].strip() and r["verdict"].strip() not in allowed]
-    if bad:
-        raise ValueError(f"not one of {sorted(allowed)} at review_order {', '.join(bad)}")
-    done = sum(bool(r["verdict"].strip()) for r in rows)
-    print(f"{done} of {n_expected} circuits have a verdict")
-    if done < n_expected:
-        return None
-    send = send_file(cfg, out)
-    with send.open("w", newline="", encoding="utf-8") as f:
-        w = csv.writer(f)
-        w.writerow(["review_order", "verdict"])
-        w.writerows(sorted(((int(r["review_order"]), r["verdict"].strip()) for r in rows)))
-    print(f"wrote {send}: review_order and verdict only, no notes")
-    return send
-
-
-def reveal(path: Path) -> None:
-    """Show `path` in the file manager, selected where the platform can."""
-    if sys.platform == "win32":
-        subprocess.Popen(["explorer", f"/select,{path}"])
-    elif sys.platform == "darwin":
-        subprocess.Popen(["open", "-R", str(path)])
-    else:
-        subprocess.Popen(["xdg-open", str(path.parent)])
-
-
-class Handler(SimpleHTTPRequestHandler):
-    """Serves the pages under `out` and saves verdicts to the sheets.
-
-    The server listens on 127.0.0.1, so nothing outside this computer can
-    reach it. A web page open in another tab still could, so a request
-    naming any other host (DNS rebinding, which would let it read pages) is
-    refused, and so is a POST from any other origin or not sent as JSON
-    (which would let it change verdicts)."""
-
-    def __init__(self, *args: Any, cfg: dict[str, Any], out: Path, **kwargs: Any):
-        self.cfg, self.out = cfg, out
-        super().__init__(*args, directory=str(out), **kwargs)
-
-    def log_message(self, format: str, *args: Any) -> None:
-        pass  # The launcher window is for the adjudicator, not a request log.
-
-    def local(self) -> set[str]:
-        port = self.server.server_address[1]
-        return {f"127.0.0.1:{port}", f"localhost:{port}"}
-
-    def reply(self, status: HTTPStatus, body: dict) -> None:
-        data = json.dumps(body).encode()
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        self.wfile.write(data)
-
-    def send_head(self):  # Every static GET and HEAD passes through here.
-        if self.headers.get("Host") not in self.local():
-            self.send_error(HTTPStatus.FORBIDDEN)
-            return None
-        return super().send_head()
-
-    def do_GET(self) -> None:
-        if not self.path.startswith("/api/"):
-            return super().do_GET()
-        if self.headers.get("Host") not in self.local():
-            return self.reply(HTTPStatus.FORBIDDEN, {"error": "refused"})
-        if self.path == "/api/ping":
-            return self.reply(HTTPStatus.OK, {"app": APP})
-        if self.path == "/api/verdicts":
-            body: dict[str, Any] = {
-                kind: {str(n): {"verdict": v, "note": note} for n, (v, note) in read_sheet(self.out / sheet).items()}
-                for kind, (sheet, _) in SHEETS.items()}
-            send = send_file(self.cfg, self.out)
-            body["send"] = send.name if send.exists() else None
-            return self.reply(HTTPStatus.OK, body)
-        self.reply(HTTPStatus.NOT_FOUND, {"error": "not found"})
-
-    def do_POST(self) -> None:
-        local = self.local()
-        if (self.headers.get("Host") not in local
-                or self.headers.get("Origin") not in {f"http://{h}" for h in local}
-                or self.headers.get_content_type() != "application/json"):
-            return self.reply(HTTPStatus.FORBIDDEN, {"error": "refused"})
-        try:
-            data = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
-        except ValueError:
-            return self.reply(HTTPStatus.BAD_REQUEST, {"error": "the request could not be read"})
-        if self.path == "/api/verdict":
-            return self.save(data)
-        if self.path == "/api/reveal":
-            send = send_file(self.cfg, self.out)
-            reveal(send if send.exists() else self.out)
-            return self.reply(HTTPStatus.OK, {})
-        self.reply(HTTPStatus.NOT_FOUND, {"error": "not found"})
-
-    def save(self, data: Any) -> None:
-        """Set the verdict and/or note of one circuit, from {kind, n,
-        verdict?, note?}, and rewrite its sheet."""
-        allowed = self.cfg["outcomes"]["circuit_failure"]["adjudication_verdicts"]
-        if not isinstance(data, dict) or data.get("kind") not in SHEETS:
-            return self.reply(HTTPStatus.BAD_REQUEST, {"error": "that page was not recognised"})
-        sheet, key = SHEETS[data["kind"]]
-        with self.server.lock:
-            rows = read_sheet(self.out / sheet)
-            n = data.get("n")
-            if type(n) is not int or n not in rows:
-                return self.reply(HTTPStatus.BAD_REQUEST, {"error": "that circuit was not recognised"})
-            if "verdict" in data and data["verdict"] not in allowed:
-                return self.reply(HTTPStatus.BAD_REQUEST, {"error": "that answer was not recognised"})
-            if "note" in data and not isinstance(data["note"], str):
-                return self.reply(HTTPStatus.BAD_REQUEST, {"error": "that note was not recognised"})
-            rows[n] = [data.get("verdict", rows[n][0]), data.get("note", rows[n][1])]
-            try:
-                write_sheet(self.out / sheet, key, rows)
-            except PermissionError:
-                return self.reply(HTTPStatus.CONFLICT, {
-                    "error": f"{sheet} is open in another program, probably Excel. Close it, then click again"})
-            if data["kind"] == "sample":
-                check(self.cfg, self.out, sample_size(self.cfg))
-        self.reply(HTTPStatus.OK, {})
-
-
-class LocalServer(ThreadingHTTPServer):
-    """Threads, not one request at a time: browsers open spare connections
-    that a single-threaded server would wait on. Writes take `lock`."""
-
-    # On Windows SO_REUSEADDR lets a second server bind a port that is in
-    # use, so a second double-click would start a second server instead of
-    # finding the first.
-    allow_reuse_address = sys.platform != "win32"
-
-    def __init__(self, port: int, handler: Any):
-        super().__init__(("127.0.0.1", port), handler)
-        self.lock = threading.Lock()
-
-
-def make_server(cfg: dict[str, Any], out: Path, port: int) -> LocalServer:
-    return LocalServer(port, partial(Handler, cfg=cfg, out=out))
-
-
-def running(port: int) -> bool:
-    """Whether this app already answers on `port`."""
-    try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/ping", timeout=PING_SECONDS) as r:
-            return json.load(r).get("app") == APP
-    except (OSError, ValueError):
-        return False
-
-
-def serve(cfg: dict[str, Any], out: Path, port: int) -> None:
-    if not (out / "index.html").exists():
-        raise SystemExit(f"No circuit pages in {out}. Run setup first (adjudicate.bat or adjudicate.sh).")
-    url = f"http://127.0.0.1:{port}/index.html"
-    try:
-        server = make_server(cfg, out, port)
-    except OSError:
-        if not running(port):
-            raise SystemExit(f"Another program is using port {port}, so adjudication cannot start. "
-                             "Tell the study team.")
-        print("Adjudication is already open. Opening it in your browser again.")
-        webbrowser.open(url)
-        return
-    print("Adjudication is open in your web browser.\n\n"
-          "Keep this window open while you work.\n"
-          "Close it when you stop: every click is already saved.\n\n"
-          f"If the browser did not open, go to {url}")
-    webbrowser.open(url)
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
 
 
 def main() -> None:
@@ -805,9 +629,9 @@ def main() -> None:
         (build if command == "build" else export)(con, cfg, out)
         con.close()
     elif command == "serve":
-        serve(cfg, out, cfg["outcomes"]["circuit_failure"]["adjudication_port"])
+        app.serve(out)
     elif command == "check":
-        check(cfg, out, sample_size(cfg))
+        app.check(app.settings(out), out)
     else:
         raise SystemExit("usage: python -m crrt.adjudication_viewer build|export|serve|check")
 

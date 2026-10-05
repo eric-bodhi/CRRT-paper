@@ -228,11 +228,14 @@ Once every `verdicts.csv` row has a verdict,
 `verdicts_send_<first 12 of adjudication_sample_sha256>.csv` is written with
 `review_order` and `verdict` only. It is the one file sent back.
 
-`uv run python -m crrt.adjudication_viewer export` packs the pages with
-both sheets empty into `adjudication_pages_<first 12 of
-adjudication_sample_sha256>.zip`, for handing to the adjudicator
-(`docs/decisions.md` 2026-10-04, "Hand the pages to a credentialed
-adjudicator"). No machine's verdicts or notes go in it.
+`uv run python -m crrt.adjudication_viewer export` packs the pages, the
+app and a Python for Windows into `adjudication_pages_<first 12 of adjudication_sample_sha256>.zip`,
+for handing to the adjudicator (`docs/decisions.md` 2026-10-04, "Hand the
+pages to a credentialed adjudicator" and "The package runs on Python
+alone"). It carries no sheet, so no machine's verdicts or notes go in it,
+and a newer package unzipped over the folder never overwrites the answers.
+The app (`crrt.adjudication_app`) creates any missing sheet empty, from
+`sample_size` and `practice_size` in the package's `manifest.json`.
 
 ## `circuit_failure_labels`
 

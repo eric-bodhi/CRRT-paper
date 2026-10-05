@@ -10,7 +10,10 @@ config/config.yaml. The app's server runs on a free port on 127.0.0.1.
 import copy
 import csv
 import json
+import os
 import re
+import subprocess
+import sys
 import threading
 import urllib.error
 import urllib.request
@@ -19,10 +22,10 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from crrt import adjudication_viewer, config
+from crrt import adjudication_app, adjudication_viewer, config
 from crrt.adjudication import draw, fingerprint
-from crrt.adjudication_viewer import (PRACTICE_SHEET, SHEET, build, check, clock, export, make_server,
-                                      package_name, send_file)
+from crrt.adjudication_app import MANIFEST, PRACTICE_SHEET, SHEET, check, make_server, send_file, settings
+from crrt.adjudication_viewer import PACKAGE_FILES, build, clock, export, package_name, windows_python
 
 duckdb = pytest.importorskip("duckdb")
 
@@ -78,6 +81,16 @@ def world() -> duckdb.DuckDBPyConnection:
     con.executemany("INSERT INTO crrt_cohort VALUES (?, true)", [(c[0],) for c in circuits])
     draw(con, CFG)
     return con
+
+
+@pytest.fixture(autouse=True)
+def no_download(tmp_path_factory, monkeypatch):
+    """A stand-in for python.org's Windows Python, so no test downloads it."""
+    fake = tmp_path_factory.mktemp("python") / "embed.zip"
+    with zipfile.ZipFile(fake, "w") as z:
+        z.writestr("python.exe", "stand-in")
+        z.writestr("python314._pth", "python314.zip\n.\n")
+    monkeypatch.setattr(adjudication_viewer, "windows_python", lambda cfg, folder: fake)
 
 
 @pytest.fixture
@@ -167,7 +180,7 @@ def test_check_rejects_a_verdict_outside_the_list(built):
     _, cfg, out = built
     fill(out, verdict="clot")
     with pytest.raises(ValueError, match="not one of"):
-        check(cfg, out, N_SAMPLE)
+        check(settings(out), out)
 
 
 def test_check_rejects_a_missing_circuit(built):
@@ -176,20 +189,20 @@ def test_check_rejects_a_missing_circuit(built):
     rows = list(csv.reader((out / SHEET).open()))[:-1]
     csv.writer((out / SHEET).open("w", newline="")).writerows(rows)
     with pytest.raises(ValueError, match="each once"):
-        check(cfg, out, N_SAMPLE)
+        check(settings(out), out)
 
 
 def test_an_unfinished_sheet_writes_nothing_to_send(built):
     _, cfg, out = built
     fill(out, skip=3)
-    assert check(cfg, out, N_SAMPLE) is None
+    assert check(settings(out), out) is None
     assert not list(out.glob("verdicts_send_*"))
 
 
 def test_the_file_to_send_has_order_and_verdict_only(built):
     _, cfg, out = built
     fill(out)
-    send = check(cfg, out, N_SAMPLE)
+    send = check(settings(out), out)
     rows = list(csv.reader(send.open()))
     assert rows[0] == ["review_order", "verdict"]
     assert all(len(r) == 2 for r in rows)
@@ -226,7 +239,7 @@ def test_the_flowsheet_fits_the_page(built):
 @pytest.fixture
 def app(built):
     _, cfg, out = built
-    srv = make_server(cfg, out, 0)
+    srv = make_server(settings(out), out, 0)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     yield srv, cfg, out
     srv.shutdown()
@@ -318,43 +331,40 @@ def test_practice_verdicts_go_to_their_own_sheet(app):
 def test_the_last_verdict_writes_the_file_to_send(app, monkeypatch):
     srv, cfg, out = app
     fill(out, skip=N_SAMPLE)
-    assert not send_file(cfg, out).exists()
+    assert not send_file(settings(out), out).exists()
     v = O["adjudication_verdicts"][-1]
     assert call(srv, "/api/verdict", {"kind": "sample", "n": N_SAMPLE, "verdict": v})[0] == 200
-    rows = list(csv.reader(send_file(cfg, out).open()))
+    rows = list(csv.reader(send_file(settings(out), out).open()))
     assert rows[0] == ["review_order", "verdict"] and rows[-1] == [str(N_SAMPLE), v]
-    assert json.loads(call(srv, "/api/verdicts")[1])["send"] == send_file(cfg, out).name
+    assert json.loads(call(srv, "/api/verdicts")[1])["send"] == send_file(settings(out), out).name
     shown = []
-    monkeypatch.setattr(adjudication_viewer, "reveal", shown.append)
+    monkeypatch.setattr(adjudication_app, "reveal", shown.append)
     assert call(srv, "/api/reveal", {})[0] == 200
-    assert shown == [send_file(cfg, out)]
+    assert shown == [send_file(settings(out), out)]
 
 
 def test_a_practice_run_never_writes_the_file_to_send(app):
     srv, cfg, out = app
     for n in sheet(out, PRACTICE_SHEET):
         call(srv, "/api/verdict", {"kind": "practice", "n": n, "verdict": O["adjudication_verdicts"][0]})
-    assert not send_file(cfg, out).exists()
+    assert not send_file(settings(out), out).exists()
 
 
-def test_the_export_holds_every_page_and_empty_sheets_only(built, tmp_path):
+def test_the_export_holds_the_pages_and_the_app_and_no_answers(built, tmp_path):
     con, cfg, out = built
     fill(out)                        # this machine's own answers and notes
-    send = check(cfg, out, N_SAMPLE)
+    send = check(settings(out), out)
     exported = tmp_path / "export" / "adjudication"
     exported.mkdir(parents=True)
-    for name in (SHEET, PRACTICE_SHEET):   # as if this machine had clicked too
+    for name in (SHEET, PRACTICE_SHEET, send.name):   # as if this machine had clicked too
         (exported / name).write_bytes((out / name).read_bytes())
     package = export(con, cfg, exported)
     assert package == exported.parent / package_name(cfg)
     with zipfile.ZipFile(package) as z:
         names = set(z.namelist())
         pages = {p.relative_to(exported).as_posix() for p in exported.rglob("*.html")}
-        assert len(pages) > N_SAMPLE and pages == {n for n in names if n.endswith(".html")}
-        assert {SHEET, PRACTICE_SHEET} <= names and send.name not in names
-        for sheet in (SHEET, PRACTICE_SHEET):
-            rows = list(csv.reader(z.read(sheet).decode().splitlines()))
-            assert len(rows) > 1 and all(r[1:] == ["", ""] for r in rows[1:])
+        assert len(pages) > N_SAMPLE
+        assert names == pages | set(PACKAGE_FILES) | {"python/python.exe", "python/python314._pth"}
         assert not any(b"charted 250" in z.read(n) for n in names)
 
 
@@ -362,3 +372,99 @@ def test_the_export_refuses_a_sample_that_is_not_the_frozen_one(tmp_path):
     with pytest.raises(SystemExit, match="does not match"):
         export(world(), CFG, tmp_path / "adjudication")
     assert not list(tmp_path.glob("*.zip"))
+
+
+def test_build_writes_the_settings_the_app_reads(built):
+    _, cfg, out = built
+    assert json.loads((out / MANIFEST).read_text()) == {
+        "sample_sha256": cfg["outcomes"]["circuit_failure"]["adjudication_sample_sha256"],
+        "sample_size": N_SAMPLE, "practice_size": O["adjudication_practice_per_stratum"] * len(STRATA),
+        "verdicts": O["adjudication_verdicts"], "port": O["adjudication_port"]}
+
+
+def test_the_launchers_run_the_app_from_their_own_folder(built):
+    _, _, out = built
+    bat = (out / "Adjudicate.bat").read_bytes()
+    assert b"\r\n" in bat and b'cd /d "%~dp0"' in bat
+    assert b"python\\python.exe adjudication_app.py" in bat and b"py -3 adjudication_app.py" in bat
+    for name in ("Adjudicate.command", "Adjudicate.sh"):
+        assert (out / name).stat().st_mode & 0o111, f"{name} is not executable"
+        assert "python3 adjudication_app.py" in (out / name).read_text()
+
+
+# -I -S: no site-packages and no PYTHONPATH, so only the standard library can
+# be imported, as on an adjudicator's computer with python.org's Python.
+BARE = [sys.executable, "-I", "-S", "-c"]
+
+
+def test_the_app_needs_only_the_standard_library(built):
+    _, _, out = built
+    run = subprocess.run(BARE + [f"import sys; sys.path.insert(0, {str(out)!r}); import adjudication_app"],
+                         capture_output=True, text=True)
+    assert run.returncode == 0, run.stderr
+
+
+SERVE_AND_SAVE = """
+import json, sys, threading, urllib.request
+from pathlib import Path
+sys.path.insert(0, {out!r})
+import adjudication_app as a
+out = Path({out!r})
+srv = a.make_server(a.settings(out), out, 0)
+threading.Thread(target=srv.serve_forever, daemon=True).start()
+url = "http://127.0.0.1:%d" % srv.server_address[1]
+req = urllib.request.Request(url + "/api/verdict",
+    data=json.dumps({{"kind": "sample", "n": 2, "verdict": {verdict!r}}}).encode(),
+    headers={{"Content-Type": "application/json", "Origin": url}})
+assert urllib.request.urlopen(req).status == 200
+assert urllib.request.urlopen(url + "/index.html").status == 200
+"""
+
+
+def interpreter(version):
+    """This test run's Python, or `version` if uv can find it. 3.9 is a
+    Mac's built-in python3, the oldest the app has to run on."""
+    if version is None:
+        return sys.executable
+    run = subprocess.run([os.environ.get("UV", "uv"), "python", "find", version], capture_output=True, text=True)
+    if run.returncode or not run.stdout.strip():
+        pytest.skip(f"no Python {version} here")
+    return run.stdout.strip()
+
+
+@pytest.mark.parametrize("version", [None, "3.9"])
+def test_an_unpacked_package_serves_and_saves_on_its_own(built, tmp_path, version):
+    con, cfg, _ = built
+    package = export(con, cfg, tmp_path / "export" / "adjudication")
+    unpacked = tmp_path / "adjudicator"
+    with zipfile.ZipFile(package) as z:
+        z.extractall(unpacked)
+    v = O["adjudication_verdicts"][0]
+    run = subprocess.run([interpreter(version)] + BARE[1:] + [SERVE_AND_SAVE.format(out=str(unpacked), verdict=v)],
+                         capture_output=True, text=True)
+    assert run.returncode == 0, run.stderr
+    assert sheet(unpacked)[2] == [v, ""]
+
+
+def test_unzipping_a_newer_package_keeps_the_answers(built, tmp_path):
+    con, cfg, _ = built
+    package = export(con, cfg, tmp_path / "export" / "adjudication")
+    folder = tmp_path / "adjudicator"
+    with zipfile.ZipFile(package) as z:
+        z.extractall(folder)
+    srv = make_server(settings(folder), folder, 0)  # first start: empty sheets
+    srv.server_close()
+    fill(folder)
+    answered = (folder / SHEET).read_bytes()
+    with zipfile.ZipFile(package) as z:             # the newer package, over the top
+        z.extractall(folder)
+    assert (folder / SHEET).read_bytes() == answered
+
+
+def test_the_windows_python_must_match_its_pinned_checksum(tmp_path):
+    py = CFG["outcomes"]["circuit_failure"]["adjudication_windows_python"]
+    cached = tmp_path / py["url"].rsplit("/", 1)[1]
+    cached.write_bytes(b"not the file python.org published")
+    with pytest.raises(SystemExit, match="does not match its pinned SHA-256"):
+        windows_python(CFG, tmp_path)
+    assert not cached.exists()
