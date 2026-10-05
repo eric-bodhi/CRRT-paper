@@ -370,7 +370,7 @@ outcomes:
     # hosp.labevents Phosphate, mg/dL (one unit in every row). Not in the
     # mimic-code chemistry concept, so it is read directly; the chartevents
     # copy 225677 is excluded (itemid_review.yaml).
-    phosphate_itemid: 50970
+    phosphate_itemid: &phosphate_itemid 50970
     # Part 3.2: "will this patient drop below 2.0 mg/dL in the next 24
     # hours". Phosphate is drawn every 6.5 h (median, feasibility §3).
     horizon_hours: 24
@@ -468,6 +468,28 @@ features:                                   # Plan Part 7
     # circuit sample, not the patient. 0.6 is the feasibility §4 cut.
     50808: [0.6, 2.0]       # Free Calcium (ionized), mmol/L.
     50893: [4, 15]          # Calcium, Total, mg/dL.
+    # hosp.labevents, the coagulation/hematology and chemistry groups.
+    # Decided 2026-10-04 (docs/decisions.md, "Laboratory features"); to the
+    # mentor's plausibility review. Read from every result the features can
+    # see: circuit_start - lab_lookback_hours to circuit_end. These are
+    # analyser results, so a value is cut only where it sits alone past an
+    # empty stretch of the tail, or is impossible. Every other bound is the
+    # edge of the data and cuts nothing.
+    51265: [5, 1300]        # Platelet Count, K/uL. Below 5 is reported as text.
+    51237: [0.7, 27.5]      # INR(PT).
+    51275: [18, 150]        # PTT, sec. 150 is the analyser's ceiling (">150").
+    51214: [25, 1800]       # Fibrinogen, Functional, mg/dL.
+    51222: [2.5, 25]        # Hemoglobin, g/dL.
+    51221: [7, 72]          # Hematocrit, %.
+    50970: [0.5, 24]        # Phosphate, mg/dL. None in (24, 27).
+    50971: [1.25, 10]       # Potassium, mEq/L.
+    50960: [0.6, 8.5]       # Magnesium, mg/dL. None in (8.5, 11).
+    50882: [2, 45]          # Bicarbonate, mEq/L.
+    51006: [1, 260]         # Urea Nitrogen, mg/dL. None in (260, 300).
+    # Creatinine 0 is not a result; mimic-code drops it too.
+    50912: [0.1, 22]        # Creatinine, mg/dL. None in (22, 32).
+    50931: [10, 1300]       # Glucose, mg/dL. None in (6, 10) or (1300, 1600).
+    51000: [15, 4000]       # Triglycerides, mg/dL.
 
   # Raw circuit pressures only: a value past a bound by at most this much is
   # the sensor at its limit, charted as a round number (filter pressure 500
@@ -518,8 +540,9 @@ features:                                   # Plan Part 7
     # running at 77-90% of positive rows before 2020, at the same rate
     # within 5% in most of them.
     heparin_dose: 224145    # units/hr
-  # Signal name: hosp.labevents itemid. Last value only: drawn about every
-  # 6 h, so a 12 h window rarely holds the min_points_for_trend.
+  # Signal name: hosp.labevents itemid. Read under lab_lookback_hours with
+  # the lab groups' columns: last value and change from the previous result,
+  # no window statistics (decisions.md 2026-10-04, "Laboratory features").
   calcium_labs:
     ionized_calcium: 50808  # Free Calcium, blood gas, mmol/L
     total_calcium: 50893    # Calcium, Total, chemistry, mg/dL
@@ -530,6 +553,43 @@ features:                                   # Plan Part 7
   # mg/dL per mmol/L of calcium (molar mass 40.08 g/mol). Puts total calcium
   # in the ionized calcium's unit before the ratio.
   calcium_mg_dl_per_mmol_l: 4.008
+
+  # The coagulation/hematology and chemistry feature groups (Part 7, fourth
+  # and seventh bullets), built by sql/lab_features.sql into one table,
+  # lab_features. Decided 2026-10-04 (docs/decisions.md, "Laboratory
+  # features"). Group: {signal name: hosp.labevents itemid}. The itemids are
+  # the mimic-code coagulation, complete_blood_count and chemistry concepts'
+  # (fetched 2026-10-04), except magnesium, phosphate and triglycerides,
+  # which no concept carries. Each needs an entry in plausibility_bounds.
+  # Last value and change from the previous result, no window statistics:
+  # drawn about every 6 h, so a window rarely holds min_points_for_trend.
+  # D-dimer (Part 7) is left out: it is
+  # drawn in 1-3% of circuits before 2020 and 11.5% in 2020-22, and in two
+  # units in 2008-10.
+  lab_groups:
+    coagulation_hematology:
+      platelets: 51265      # Platelet Count, K/uL
+      inr: 51237            # INR(PT)
+      ptt: 51275            # PTT, sec
+      fibrinogen: 51214     # Fibrinogen, Functional, mg/dL
+      hemoglobin: 51222     # Hemoglobin, g/dL
+      hematocrit: 51221     # Hematocrit, %
+    chemistry:
+      phosphate: *phosphate_itemid  # Phosphate, mg/dL: the hypophosphatemia item
+      potassium: 50971      # Potassium, mEq/L. Serum, not 50822 whole blood.
+      magnesium: 50960      # Magnesium, mg/dL
+      bicarbonate: 50882    # Bicarbonate, mEq/L. Not 50804 blood gas total CO2.
+      bun: 51006            # Urea Nitrogen, mg/dL
+      creatinine: 50912     # Creatinine, mg/dL
+      glucose: 50931        # Glucose, mg/dL. Not 50809 blood gas.
+      triglycerides: 51000  # Triglycerides, mg/dL
+  # A lab result, of the lab groups or calcium_labs, counts at prediction
+  # time t if drawn no earlier than this before t; the previous result of a
+  # delta too. Platelets, INR and PTT are often drawn once a day (p90 gap
+  # between draws inside a circuit 23-24 h): over 12 h, INR is missing at
+  # 39% of scored rows, over 24 h at 11%. Same 24 h as
+  # hypophosphatemia.known_value_max_age_hours.
+  lab_lookback_hours: 24
 
 
 reporting:                                  # Plan Part 1.4

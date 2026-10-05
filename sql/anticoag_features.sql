@@ -19,13 +19,16 @@
 --
 -- Calcium (labevents, `calcium_labs`): ionized_calcium and total_calcium,
 -- the patient's results, so not limited to the circuit. A result counts at
--- t if charttime <= t, storetime <= t, charttime >= t - the longest window,
+-- t if charttime <= t, storetime <= t, charttime >= t - `lab_lookback`,
 -- and it is inside its bound. Results of one item at one charttime are
 -- averaged and available at the latest storetime. Each total calcium is
 -- paired with the ionized calcium drawn nearest to it within
 -- `calcium_pair`, ties to the earlier draw; calcium_ratio is total (in
 -- mmol/L) / ionized, timed at the total's charttime and available once both
--- are. Each of the three gives <name>_last and <name>_hours_since_last.
+-- are. Each of the three gives <name>_last and <name>_hours_since_last,
+-- and, as in lab_features, from the latest two results that count ([1] the
+-- last, [2] the one before it), <name>_delta (last - previous) and
+-- <name>_delta_hours (hours between their draws).
 --
 -- anticoag_class, from citrate_rate_last and heparin_dose_last:
 -- citrate_heparin, citrate, heparin (each > 0), else none if citrate_rate_last
@@ -158,6 +161,22 @@ lab_vals AS (
     SELECT subject_id, name, charttime, value, available_at FROM pairs
 ),
 
+-- The latest two lab results that count at each prediction time, newest
+-- first.
+lab_latest AS (
+    SELECT
+        g.circuit_id, g.pred_time, v.name,
+        arg_max(v.value, v.charttime, 2) AS vals,
+        max(v.charttime, 2) AS times
+    FROM grid AS g
+    JOIN circ AS c USING (circuit_id)
+    JOIN lab_vals AS v
+      ON v.subject_id = c.subject_id
+     AND v.charttime BETWEEN g.pred_time - getvariable('lab_lookback') AND g.pred_time
+     AND v.available_at <= g.pred_time
+    GROUP BY g.circuit_id, g.pred_time, v.name
+),
+
 latest AS (
     SELECT
         circuit_id, pred_time, name,
@@ -167,25 +186,22 @@ latest AS (
     GROUP BY circuit_id, pred_time, name
     UNION ALL
     SELECT
-        g.circuit_id, g.pred_time, v.name,
-        arg_max(v.value, v.charttime),
-        epoch(g.pred_time - max(v.charttime)) / epoch(INTERVAL '1 hour')
-    FROM grid AS g
-    JOIN circ AS c USING (circuit_id)
-    CROSS JOIN longest AS lw
-    JOIN lab_vals AS v
-      ON v.subject_id = c.subject_id
-     AND v.charttime BETWEEN g.pred_time - lw.span AND g.pred_time
-     AND v.available_at <= g.pred_time
-    GROUP BY g.circuit_id, g.pred_time, v.name
+        circuit_id, pred_time, name,
+        vals[1],
+        epoch(pred_time - times[1]) / epoch(INTERVAL '1 hour')
+    FROM lab_latest
+),
+
+lab_names AS (
+    SELECT name FROM labitems
+    UNION ALL
+    SELECT 'calcium_ratio'
 ),
 
 names AS (
     SELECT name FROM items
     UNION ALL
-    SELECT name FROM labitems
-    UNION ALL
-    SELECT 'calcium_ratio'
+    SELECT name FROM lab_names
 ),
 
 latest_filled AS (
@@ -194,6 +210,17 @@ latest_filled AS (
     CROSS JOIN names AS nm
     LEFT JOIN latest AS la
       ON la.circuit_id = g.circuit_id AND la.pred_time = g.pred_time AND la.name = nm.name
+),
+
+delta_filled AS (
+    SELECT
+        g.circuit_id, g.pred_time, nm.name AS key,
+        ll.vals[1] - ll.vals[2] AS delta,
+        epoch(ll.times[1] - ll.times[2]) / epoch(INTERVAL '1 hour') AS delta_hours
+    FROM grid AS g
+    CROSS JOIN lab_names AS nm
+    LEFT JOIN lab_latest AS ll
+      ON ll.circuit_id = g.circuit_id AND ll.pred_time = g.pred_time AND ll.name = nm.name
 )
 
 SELECT
@@ -205,11 +232,15 @@ SELECT
         WHEN lf.citrate_rate_last = 0 THEN 'none'
     END AS anticoag_class,
     lf.* EXCLUDE (circuit_id, pred_time),
+    df.* EXCLUDE (circuit_id, pred_time),
     wf.* EXCLUDE (circuit_id, pred_time)
 FROM grid AS g
 JOIN (PIVOT latest_filled ON key
       USING first(last) AS last, first(hours_since_last) AS hours_since_last
       GROUP BY circuit_id, pred_time) AS lf USING (circuit_id, pred_time)
+JOIN (PIVOT delta_filled ON key
+      USING first(delta) AS delta, first(delta_hours) AS delta_hours
+      GROUP BY circuit_id, pred_time) AS df USING (circuit_id, pred_time)
 JOIN (PIVOT filled ON key
       USING first(n) AS n, first(mean) AS mean, first(min) AS min, first(max) AS max,
             first(slope) AS slope, first(var) AS var
