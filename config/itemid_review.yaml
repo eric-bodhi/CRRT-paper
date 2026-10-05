@@ -235,7 +235,7 @@ items:
   # procedureevents
   # --------------------------------------------------------------------------
   225441: {verdict: include, roles: [cohort], reason: "Intermittent hemodialysis, 730 stays with a circuit. Describes IHD next to CRRT in the stay (Table 1). Not evidence of chronic dialysis: AKI patients often start on IHD before CRRT (decisions.md, chronic dialysis flag)."}
-  224270: {verdict: include, roles: [feature], reason: "Dialysis catheter. In place at the start of about 6,450 of 8,414 circuits. `location` (IJ / femoral / subclavian, by side) is filled in 32% of rows. Site is a known driver of filter life. starttime gives insertion time inside the ICU."}
+  224270: {verdict: exclude, reason: "Dialysis catheter. In place at the start of about 6,450 of 8,414 circuits. `location` (IJ / femoral / subclavian, by side) is filled in 32% of rows. Excluded 2026-10-04 (decisions.md, \"Access features\"): `location` is filled in when the catheter comes out, in 93% of catheters removed inside the stay against 4% of those still in at ICU discharge and 9% at death, so site at t is future information. The row's storetime is a median 0.01 h after endtime. Included 2026-10-02 as a feature."}
   224263: {verdict: exclude, reason: "Multi-lumen CVC, not the dialysis access."}
   229517: {verdict: exclude, reason: "Cooling catheter, 14 rows."}
   229516: {verdict: exclude, reason: "Single-lumen line, not the dialysis access."}
