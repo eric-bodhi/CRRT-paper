@@ -36,9 +36,10 @@ The registration states what was seen before it was written. Disclosing only
 
 ## 2. Gates from the decision log
 
-- [ ] Yang 2024 (PMID 38704337) read in full; their clotting and circuit
+- [x] Yang 2024 (PMID 38704337) read in full; their clotting and circuit
       definitions confirmed and logged in `docs/decisions.md`
-      (2026-10-02, "Before locking").
+      (2026-10-02, "Before locking"). Done 2026-10-05: see "Yang 2024 read
+      in full: the framing stands".
 
 ## 3. Lock every open value in `config/config.yaml`
 

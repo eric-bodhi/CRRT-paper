@@ -2,6 +2,116 @@
 
 Every judgment call, with its date (plan Part 14). Newest first.
 
+## 2026-10-05 — Yang 2024 read in full: the framing stands
+
+**Decision.** Yang et al. 2024 (*Intensive Crit Care Nurs* 84:103703, PMID
+38704337) has now been read in full. That clears the gate in
+`BEFORE_OSF_CHECKLIST.md` §2 and the "Before locking" item of 2026-10-02
+("Novelty rests on the task and the outcome definition"). Their definitions
+are confirmed below, and the 2026-10-02 framing stands unchanged: Yang is
+cited and differentiated, and is not a comparator. Nothing in
+`config/config.yaml`, the cohort or the labels changes.
+
+**What Yang did, against this project.**
+
+| | Yang 2024 | This project |
+|---|---|---|
+| Data | Development: MIMIC-III CareVue 1.4 (2001–08) plus MIMIC-IV **2.2** (2008–19). External validation: eICU (2014–15) | MIMIC-IV 3.1 (2008–22) |
+| Unit | Patient. The first CRRT session after ICU admission, one row each | Circuit, defined by filter identity, nested in patients |
+| Outcome | Clotting that forces CRRT discontinuation within 48 h of initiation | Documented `Clotted` (224146) ending a circuit within horizon H, re-asked every hour *t* |
+| What counts as a clot | Gattas 2015: sustained TMP >300 mmHg, *or* visible clot, *or* a pump stop needing blood return. How this was read from MIMIC or eICU is not stated | Documentation only, never pressure (feasibility §2.4) |
+| Circuit / session | Never operationalised; "session" is undefined | Filter identity, with *G*<sub>max</sub> |
+| Predictor timing | Labs: mean of the 12 h before CRRT start. Drugs, ventilation, transfusion: −6 h to +6 h. **Vital signs: mean over the whole CRRT run.** TMP: maximum change over any 2 h interval; the span is not stated | Only what is available at *t* (`storetime`) |
+| Exclusions (MIMIC, 2,916 → 1,752) | Indeterminate CRRT status 740; ICU stay <24 h 30; CRRT stopped for non-clotting reasons 394. In eICU (3,134 → 779), 2,148 were dropped as indeterminate | Competing events kept (Part 5.3) |
+| Model | LASSO at λ<sub>1se</sub> (10 of 48 candidates), then univariate and multivariable *P* < 0.05, giving a 5-variable logistic nomogram | — |
+| Validation | 500-bootstrap internal (AUROC 0.897, Brier 0.087); eICU external (AUROC 0.877, Brier 0.120) | Patient-grouped, plus temporal |
+| Events | 558/1,752 (31.85%) development; 249/779 (31.96%) external | — |
+
+The final predictors are temperature, anticoagulation (yes/no), MAP, maximum
+2 h TMP change and vasopressor use.
+
+**What it means here.**
+
+1. **It is not a forecast.** MAP and temperature are averaged over the whole
+   CRRT run, up to and including the clot. The TMP window's span is not
+   stated, but the discussion contrasts TMP over the course of circuits that
+   clotted and circuits that did not, which suggests the whole run too. So
+   0.877 is the AUROC of a retrospective summary, not of a prediction made at
+   a point in time. That supports contribution 1 rather than threatening it.
+   In the manuscript, state it as fact ("predictors summarised over the CRRT
+   run"). Do not call it leakage: contribution 4 accuses no specific paper.
+2. **Pressure is in both the label and the top feature.** Sustained TMP
+   >300 mmHg defines an event, and the strongest predictor is maximum TMP
+   change (adjusted OR 3.05). This is the circularity that feasibility §2.4
+   and contribution 4 describe. Our label stays documentation-only.
+3. **Their non-events are selected.** Dropping first sessions that ended for
+   non-clotting reasons removes exactly the competing events that Part 5.3
+   keeps. On top of that, 25% of MIMIC patients and 69% of eICU patients were
+   dropped as "indeterminate".
+4. **The model cannot be re-run from the paper.** Table 2 gives odds ratios
+   with no units and no intercept; the only route to the coefficients is
+   reading them off Fig. 3. Together with point 1, this is why Yang is not a
+   comparator. Contribution 3's comparators stay Hu 2026 and
+   `Clots Increasing`.
+5. **The reported numbers do not reconcile.**
+   - At the stated prevalence, Table 3's training sensitivity 0.915 and
+     specificity 0.746 imply accuracy 0.800 and PPV 0.627; the paper
+     reports 0.862 and 0.848.
+   - The validation row implies 0.768 and 0.600; the paper reports 0.815 and
+     0.828.
+   - Swapping sensitivity and specificity does not reproduce all three
+     metrics either.
+   - Table 1's median MAP of 94 mmHg sits beside SBP 108 and DBP 56.
+   - The univariate odds ratio for anticoagulation is 0.008, and the paper
+     does not say how anticoagulation was ascertained.
+
+   Do not anchor any planning number on Yang's metrics.
+6. **One concordance.** Yang's non-anticoagulated share at BIDMC is 18.1%.
+   Ours is 18.3%: 1,541 of 8,414 circuits have neither citrate nor heparin
+   charted (feasibility §1).
+
+**Yang's outcome under our label (planning number).** This is an
+exploratory query, not part of `run_all.sh`. It reports outcome rates only,
+with no feature–outcome association, so it stays inside the OSF checklist's
+"seen" list. Population: adults, circuits ≥4 h, each patient's first circuit,
+n = 2,564.
+
+| Variant | Events | Rate |
+|---|--:|--:|
+| First circuit ends documented `Clotted` within 48 h | 372 | 14.5% |
+| … counting `Clots Increasing` as well | 467 | 18.2% |
+| Any circuit ends `Clotted` within 48 h of the first circuit's start | 404 | 15.8% |
+| Yang-style exclusions: drop first circuits that ended within 48 h undocumented or for a non-clot reason (n = 1,489) | 372 | 25.0% |
+
+Yang reports 31.85%. Counting a session rather than a circuit does not close
+the gap (15.8% against 14.5%). Their exclusions close about 60% of it (14.5% → 25.0%).
+The rest is plausibly what their label counts and ours does not: sustained
+TMP and pump stops. Use this when the manuscript contrasts event rates.
+
+**No Yang-shaped static model.** A static model built on whole-run
+summaries, fitted next to the hourly model under contribution 4, was
+considered and declined. Contribution 4 stays as written: circuit-level
+splits, and pressure in the label.
+
+**Leads from Yang's reference list.** Verify each before citing.
+
+- Kakajiwala 2017, *Pediatr Nephrol* 32:1251: membrane pressures predicted
+  clotting in 79 paediatric filters. Earlier pressure-based work alongside
+  Hu 2026, for Part 3.1.
+- Zhang 2022, *Blood Purif* 51:668: an externally validated filter-lifespan
+  model for anticoagulation-free CRRT.
+- Fu 2014, *Int Urol Nephrol* 46:801: a 24 h clotting model, which Yang
+  compares against.
+- Dunn & Sriram 2014, *Crit Care Resusc* 16:225: 1,322 filter lifespans; low
+  MAP shortens them.
+- Gattas 2015, *Crit Care Med* 43:1622: the source of Yang's clot
+  definition.
+- Li 2021, *Front Med* 8:621921: 395 circuits at West China Hospital; 33.9%
+  clotted within 24 h.
+
+**Where it applies.** Plan Parts 0, 3.1, 5.1 and 5.3; `docs/feasibility.md`
+§5; `BEFORE_OSF_CHECKLIST.md` §2.
+
 ## 2026-10-05 — Static features
 
 **Decision.** `sql/static_features.sql` builds the static group (Part 7,

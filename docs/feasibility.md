@@ -282,6 +282,11 @@ alone and must be re-verified before it goes into a manuscript.
   - Static logistic model with one row per patient. Predictors: temperature,
     anticoagulation, MAP, maximum TMP change within 2 h, and vasopressor.
   - External AUROC 0.877.
+  - *Full text read 2026-10-05.* The outcome is clotting within 48 h of the
+    first session, under Gattas 2015, which counts sustained TMP >300 mmHg.
+    Vital signs are averaged over the whole CRRT run, and sessions that
+    stopped for non-clotting reasons are excluded. Details and caveats are
+    in `docs/decisions.md` (2026-10-05).
   - **Consequence:** the outline's "nobody has done it at scale on a public
     database" (Part 3.1) is false and must go.
   - **What remains open:** a dynamic, hourly, circuit-level early warning that
