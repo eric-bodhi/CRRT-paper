@@ -88,10 +88,10 @@ the gap (15.8% against 14.5%). Their exclusions close about 60% of it (14.5% →
 The rest is plausibly what their label counts and ours does not: sustained
 TMP and pump stops. Use this when the manuscript contrasts event rates.
 
-**Open, for both authors.** Whether to add a static, Yang-shaped model,
-built on whole-run summaries, next to the hourly model under contribution 4.
-It would show how much whole-run aggregates inflate AUROC. If wanted, it must
-be pre-specified on OSF; nothing is fitted before then.
+**No Yang-shaped static model.** A static model built on whole-run
+summaries, fitted next to the hourly model under contribution 4, was
+considered and declined. Contribution 4 stays as written: circuit-level
+splits, and pressure in the label.
 
 **Leads from Yang's reference list.** Verify each before citing.
 
