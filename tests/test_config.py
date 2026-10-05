@@ -76,6 +76,8 @@ REQUIRED_KEYS = [
     "features.calcium_labs",
     "features.calcium_pair_minutes",
     "features.calcium_mg_dl_per_mmol_l",
+    "features.lab_groups",
+    "features.lab_lookback_hours",
     "evaluation.alert_budget_alerts",
     "evaluation.alert_budget_hours",
     "paths.mimic_dir",
@@ -140,10 +142,12 @@ def test_plausibility_bounds_are_ordered_and_reviewed(config):
     review included (Part 2.3): a bound on an unreviewed item is a bound on
     a variable no feature may read. Labevents itemids are outside the review
     by design (labs come from labevents, not its chartevents copies); they
-    are allowed only as a named calcium lab."""
+    are allowed only as a named calcium lab or a lab in a lab group."""
     reviewed = yaml.safe_load(ITEMID_REVIEW_PATH.read_text())["items"]
-    labs = set(config["features"]["calcium_labs"].values())
-    for itemid, (low, high) in config["features"]["plausibility_bounds"].items():
+    features = config["features"]
+    labs = set(features["calcium_labs"].values()) | {
+        itemid for group in features["lab_groups"].values() for itemid in group.values()}
+    for itemid, (low, high) in features["plausibility_bounds"].items():
         assert low < high, itemid
         assert itemid in labs or reviewed[itemid]["verdict"] == "include", itemid
 
@@ -154,6 +158,17 @@ def test_feature_signals_are_bounded(config, group):
     an item without one would reach the features uncleaned."""
     features = config["features"]
     assert set(features[group].values()) <= set(features["plausibility_bounds"])
+
+
+def test_lab_groups_are_bounded_and_named_once(config):
+    """Every lab is read through its bound, and a name is one column pair of
+    lab_features, so it may appear in only one group."""
+    features = config["features"]
+    groups = features["lab_groups"].values()
+    names = [name for group in groups for name in group]
+    assert len(names) == len(set(names))
+    assert {itemid for group in groups for itemid in group.values()} <= set(
+        features["plausibility_bounds"])
 
 
 def test_clipped_pressures_are_bounded(config):

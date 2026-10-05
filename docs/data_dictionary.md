@@ -110,6 +110,7 @@ machine items".
 |---|---|---|
 | Machine items: 224144 Blood Flow; 224149, 224150, 224151, 224152 the raw circuit pressures; 229247 TMP; 229248 Pressure Drop; 224153, 228006, 228005, 224154 replacement, post-filter, PBP and dialysate rates; 224191 Hourly Patient Fluid Removal; 226457 Ultrafiltrate Output; 225183 Current Goal; 228004 Citrate (ACD-A); 224145 Heparin Dose | A value outside [low, high] (inclusive) is set to missing. | `features.plausibility_bounds` |
 | Calcium labs (`labevents`): 50808 Free Calcium, 50893 Calcium, Total | As above. Decision: `docs/decisions.md` 2026-10-04, "Anticoagulation features". | `features.plausibility_bounds` |
+| Coagulation/hematology and chemistry labs (`labevents`): the 14 items of `features.lab_groups` | As above. Decision: `docs/decisions.md` 2026-10-04, "Laboratory features". | `features.plausibility_bounds` |
 | Raw circuit pressures 224149, 224150, 224151, 224152 | Exception: a value past a bound by at most the margin is set to the bound (a sensor at its limit). Further out, missing. | `features.pressure_clip_margin_mmhg`, `features.pressure_clip_itemids` |
 
 TMP and pressure drop derived from the raw pressures (feasibility §1) are
@@ -426,10 +427,11 @@ heparin 225152, argatroban 225147, bivalirudin 225148). See the decision.
 - Calcium labs: the patient's results, matched on `subject_id`, so a result
   drawn before `circuit_start` (on the previous filter, or before CRRT)
   counts. A result counts at *t* only if `charttime ≤ t`, `storetime ≤ t`,
-  and `charttime ≥ t −` the longest of `features.window_hours`, and it must
-  be inside its plausibility bound. Results of one item at one `charttime`
+  and `charttime ≥ t −` `features.lab_lookback_hours`, and it must be
+  inside its plausibility bound. Results of one item at one `charttime`
   (26 total-calcium and under 10 ionized charttimes) are averaged and
-  available at the later `storetime`.
+  available at the later `storetime`. The lookback was the longest of
+  `features.window_hours` until 2026-10-04 ("Laboratory features").
 
 **Derived.**
 
@@ -438,22 +440,75 @@ heparin 225152, argatroban 225147, bivalirudin 225148). See the decision.
 | `calcium_ratio` | Total calcium / `features.calcium_mg_dl_per_mmol_l` ÷ ionized calcium. Each bounded total calcium is paired with the bounded ionized calcium whose `charttime` is nearest, within `features.calcium_pair_minutes` either side, ties to the earlier draw. Timed at the total's `charttime`; available once both are stored. | ratio |
 | `anticoag_class` | From `citrate_rate_last` and `heparin_dose_last`: `citrate_heparin` if both > 0; else `citrate` or `heparin` if that one is > 0; else `none` if `citrate_rate_last` = 0; else null (nothing known about citrate). | text |
 
-**Columns.** `<s>` is `citrate_rate` or `heparin_dose`; `<l>` is any of
-those two, `ionized_calcium`, `total_calcium` or `calcium_ratio`; `<w>` is
-each of `features.window_hours`.
+**Columns.** `<s>` is `citrate_rate` or `heparin_dose`; `<c>` is
+`ionized_calcium`, `total_calcium` or `calcium_ratio`; `<l>` is any of
+these five; `<w>` is each of `features.window_hours`.
 
 | Column | Type / unit | Definition |
 |---|---|---|
 | `circuit_id`, `pred_time` | | As in `circuit_failure_labels`. |
 | `anticoag_class` | text | See above. |
-| `<l>_last` | signal unit | The latest-charted value in the longest window. Null if none. |
+| `<l>_last` | signal unit | The latest-charted value that counts at `pred_time`: in the longest window for `<s>`, in the lookback for `<c>`. Null if none. |
 | `<l>_hours_since_last` | hours | `pred_time` − the `charttime` of `<l>_last`. |
+| `<c>_delta`, `<c>_delta_hours` | signal unit, hours | As in `lab_features`. |
 | `<s>_<w>h_n`, `_mean`, `_min`, `_max`, `_slope`, `_var` | | As in `machine_features`. |
 
 Known misclassification in `anticoag_class` (scored rows before 2020, where
 `inputevents` is complete): 18.6% of `none` rows have a 225152 heparin
 infusion running and 4.9% argatroban or bivalirudin. 7.4% of `citrate` rows
 have 225152 heparin running.
+
+## `lab_features`
+
+The coagulation/hematology and chemistry feature groups (Part 7, fourth and
+seventh bullets), in one table. One row per `circuit_failure_labels` row,
+scored or not: the same grid as `machine_features`. Built by
+`sql/lab_features.sql`, run from `uv run python -m crrt.features` (stage 5
+of `run_all.sh`). Decision: `docs/decisions.md` 2026-10-04, "Laboratory
+features".
+
+**Sources.** All from `labevents`. The group of each lab is its key in
+`features.lab_groups`, the list an ablation by group reads.
+
+| Group | Signal | itemid | Unit |
+|---|---|---|---|
+| `coagulation_hematology` | `platelets` | 51265 Platelet Count | K/uL |
+| | `inr` | 51237 INR(PT) | ratio |
+| | `ptt` | 51275 PTT. 150 is the analyser's ceiling (">150") | sec |
+| | `fibrinogen` | 51214 Fibrinogen, Functional | mg/dL |
+| | `hemoglobin` | 51222 Hemoglobin (blood count, not 50811 blood gas) | g/dL |
+| | `hematocrit` | 51221 Hematocrit (blood count, not 50810 blood gas) | % |
+| `chemistry` | `phosphate` | 50970 Phosphate, the hypophosphatemia outcome's item | mg/dL |
+| | `potassium` | 50971 Potassium (serum, not 50822 whole blood) | mEq/L |
+| | `magnesium` | 50960 Magnesium | mg/dL |
+| | `bicarbonate` | 50882 Bicarbonate (not 50804 blood gas total CO2) | mEq/L |
+| | `bun` | 51006 Urea Nitrogen | mg/dL |
+| | `creatinine` | 50912 Creatinine | mg/dL |
+| | `glucose` | 50931 Glucose (chemistry, not 50809 blood gas) | mg/dL |
+| | `triglycerides` | 51000 Triglycerides | mg/dL |
+
+Part 7 also lists D-dimer. It is left out (51196, 50915); see the decision.
+
+**Cleaning rules.** The calcium labs' rules in `anticoag_features`:
+
+- The patient's results, matched on `subject_id`, so a result drawn before
+  `circuit_start` (on the previous filter, or before CRRT) counts.
+- A result counts at *t* only if `charttime ≤ t`, `storetime ≤ t`, and
+  `charttime ≥ t −` `features.lab_lookback_hours`.
+- It must be inside its plausibility bound. Out of bound is missing, never
+  clipped.
+- Results of one item at one `charttime` (under 30 per item inside
+  included circuits) are averaged and available at the latest `storetime`.
+
+**Columns.** `<l>` is each signal above.
+
+| Column | Type / unit | Definition |
+|---|---|---|
+| `circuit_id`, `pred_time` | | As in `circuit_failure_labels`. |
+| `<l>_last` | signal unit | The value at the latest `charttime` that counts at `pred_time`. Null if none. |
+| `<l>_hours_since_last` | hours | `pred_time` − the `charttime` of `<l>_last`. |
+| `<l>_delta` | signal unit | `<l>_last` − the value at the `charttime` before it among results that count at `pred_time`. A result drawn earlier but not yet stored is skipped. Null if fewer than two results count. |
+| `<l>_delta_hours` | hours | The `charttime` of `<l>_last` − the `charttime` of the previous result. Null with `<l>_delta`. |
 
 ## Sensitivity analysis schemas
 
@@ -471,11 +526,11 @@ rules of the `main` tables of the same name.
 | `unclear_exclude` | `outcomes.circuit_failure.unclear_handling_primary` | `circuit_failure_labels` |
 | `phosphate_below_1_5` | `outcomes.hypophosphatemia.moderate_mg_dl` | `hypophos_labels` |
 | `repletion_<handling>` | `outcomes.hypophosphatemia.repletion_handling_primary` | `hypophos_labels` |
-| `max_downtime_<h>h` | `circuits.max_downtime_hours` | `crrt_circuits` through `anticoag_features` |
-| `segment_gap_<h>h` | `sessionization.gap_hours` | `crrt_circuits` through `anticoag_features` |
+| `max_downtime_<h>h` | `circuits.max_downtime_hours` | `crrt_circuits` through `lab_features` |
+| `segment_gap_<h>h` | `sessionization.gap_hours` | `crrt_circuits` through `lab_features` |
 
 - A label analysis has the primary's grid (checked when it is built), so
-  it joins `main.machine_features` and `main.anticoag_features` on
-  (`circuit_id`, `pred_time`).
+  it joins `main.machine_features`, `main.anticoag_features` and
+  `main.lab_features` on (`circuit_id`, `pred_time`).
 - A circuit analysis renumbers `circuit_id`. Join its tables only to tables
   in the same schema.

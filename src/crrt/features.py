@@ -1,11 +1,12 @@
 """Build the feature tables (Part 7).
 
-So far two groups, each one row per prediction row of
+So far four groups in three tables, each one row per prediction row of
 `circuit_failure_labels` (the same grid as `hypophos_labels`), from data
 available at the prediction time: the machine/circuit group
-(`machine_features`, rules in `sql/machine_features.sql`) and the
+(`machine_features`, rules in `sql/machine_features.sql`), the
 anticoagulation group (`anticoag_features`, rules in
-`sql/anticoag_features.sql`).
+`sql/anticoag_features.sql`), and the coagulation/hematology and chemistry
+groups (`lab_features`, rules in `sql/lab_features.sql`).
 
 This module binds the SQL's parameters from config/config.yaml and prints
 an aggregate summary, with every count under
@@ -25,6 +26,7 @@ from crrt.report import count
 
 MACHINE_FEATURES_SQL = config.REPO_ROOT / "sql" / "machine_features.sql"
 ANTICOAG_FEATURES_SQL = config.REPO_ROOT / "sql" / "anticoag_features.sql"
+LAB_FEATURES_SQL = config.REPO_ROOT / "sql" / "lab_features.sql"
 
 
 def bind_machine_features(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
@@ -70,6 +72,7 @@ def bind_anticoag_features(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) 
         "calcium_labs": bounded(f["calcium_labs"]),
         "calcium_pair": timedelta(minutes=f["calcium_pair_minutes"]),
         "calcium_mg_dl_per_mmol_l": float(f["calcium_mg_dl_per_mmol_l"]),
+        "lab_lookback": timedelta(hours=f["lab_lookback_hours"]),
         "windows": [{"hours": h, "span": timedelta(hours=h)} for h in f["window_hours"]],
         "min_points_for_trend": f["min_points_for_trend"],
         "step": timedelta(hours=cfg["prediction"]["step_hours"]),
@@ -79,6 +82,25 @@ def bind_anticoag_features(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) 
 def build_anticoag_features(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
     bind_anticoag_features(con, cfg)
     con.execute(ANTICOAG_FEATURES_SQL.read_text())
+
+
+def bind_lab_features(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
+    """Set every DuckDB variable that sql/lab_features.sql reads."""
+    f = cfg["features"]
+    bounds = f["plausibility_bounds"]
+    labs = [{"name": name, "itemid": itemid,
+             "low": float(bounds[itemid][0]), "high": float(bounds[itemid][1])}
+            for group in f["lab_groups"].values() for name, itemid in group.items()]
+    _set(con, {
+        "labs": labs,
+        "lab_itemids": [i["itemid"] for i in labs],
+        "lab_lookback": timedelta(hours=f["lab_lookback_hours"]),
+    })
+
+
+def build_lab_features(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
+    bind_lab_features(con, cfg)
+    con.execute(LAB_FEATURES_SQL.read_text())
 
 
 def summarize(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
@@ -128,13 +150,18 @@ def summarize_anticoag(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> N
     total = con.execute(f"SELECT count(*) {scored}").fetchone()[0]
     print(f"anticoag_features: {len(columns)} columns; {count(total, small)} scored rows")
 
-    print(f"\n{'signal':20s} {'has last':>9s} {'median last':>12s} {'median h since':>15s}")
+    def share(k: int) -> str:
+        return f"{k / total:.1%}" if k >= small else count(k, small)
+
+    print(f"\n{'signal':20s} {'has last':>9s} {'median last':>12s} {'median h since':>15s} "
+          f"{'has delta':>10s}")
     for s in names:
         k, med, since = con.execute(
             f"SELECT count({s}_last), median({s}_last), median({s}_hours_since_last) {scored}"
         ).fetchone()
-        share = f"{k / total:.1%}" if k >= small else count(k, small)
-        print(f"{s:20s} {share:>9s} {med:>12.3g} {since:>15.1f}")
+        has_delta = (share(con.execute(f"SELECT count({s}_delta) {scored}").fetchone()[0])
+                     if f"{s}_delta" in columns else "—")
+        print(f"{s:20s} {share(k):>9s} {med:>12.3g} {since:>15.1f} {has_delta:>10s}")
 
     rows = con.execute(
         "SELECT p.anchor_year_group, coalesce(a.anticoag_class, '(unknown)'), count(*) "
@@ -156,6 +183,38 @@ def summarize_anticoag(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> N
     print()
 
 
+def summarize_labs(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
+    """Coverage of each lab among scored circuit-failure rows, overall and by
+    era: how often a lab is drawn changed by era for some of them
+    (decisions.md, 2026-10-04, "Laboratory features")."""
+    small = cfg["reporting"]["small_cell_threshold"]
+    columns = [d[0] for d in con.execute("SELECT * FROM lab_features LIMIT 0").description]
+    scored = ("FROM lab_features JOIN circuit_failure_labels USING (circuit_id, pred_time) "
+              "JOIN patients USING (subject_id) WHERE scored")
+    total = con.execute(f"SELECT count(*) {scored}").fetchone()[0]
+    print(f"lab_features: {len(columns)} columns; {count(total, small)} scored rows")
+
+    def share(k: int, n: int) -> str:
+        return f"{k / n:.1%}" if k >= small else count(k, small)
+
+    eras = [e for (e,) in con.execute(
+        f"SELECT DISTINCT anchor_year_group {scored} ORDER BY 1").fetchall()]
+    print(f"\n{'group':24s} {'lab':14s} {'has last':>9s} {'median last':>12s} "
+          f"{'median h since':>15s} {'has delta':>10s}  has last by era ({eras[0]} … {eras[-1]})")
+    for group, labs in cfg["features"]["lab_groups"].items():
+        for s in labs:
+            k, med, since, k_delta = con.execute(
+                f"SELECT count({s}_last), median({s}_last), median({s}_hours_since_last), "
+                f"count({s}_delta) {scored}"
+            ).fetchone()
+            by_era = dict((e, (k_e, n_e)) for e, k_e, n_e in con.execute(
+                f"SELECT anchor_year_group, count({s}_last), count(*) {scored} GROUP BY 1"
+            ).fetchall())
+            print(f"{group:24s} {s:14s} {share(k, total):>9s} {med:>12.3g} {since:>15.1f} "
+                  f"{share(k_delta, total):>10s}  " + " / ".join(share(*by_era[e]) for e in eras))
+    print()
+
+
 def main() -> None:
     cfg = config.load()
     con = duckdb.connect(str(config.path(cfg, "duckdb")))
@@ -163,6 +222,8 @@ def main() -> None:
     summarize(con, cfg)
     build_anticoag_features(con, cfg)
     summarize_anticoag(con, cfg)
+    build_lab_features(con, cfg)
+    summarize_labs(con, cfg)
     con.close()
 
 

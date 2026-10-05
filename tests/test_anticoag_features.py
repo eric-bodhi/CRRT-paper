@@ -28,6 +28,7 @@ WINDOWS = F["window_hours"]
 SHORT, LONG = min(WINDOWS), max(WINDOWS)
 STEP = CFG["prediction"]["step_hours"]
 PAIR_H = F["calcium_pair_minutes"] / 60
+LOOKBACK = F["lab_lookback_hours"]
 MG_PER_MMOL = F["calcium_mg_dl_per_mmol_l"]
 ORIGIN = datetime(2150, 1, 1)
 
@@ -106,9 +107,11 @@ def test_every_sql_variable_is_bound():
 def test_sql_has_no_numeric_literals():
     """CLAUDE.md: a number typed into a .sql file is a bug. Allowed: the unit
     INTERVAL '1 hour', a bare 0 (an empty window's count, citrate or heparin
-    off) and the 1 that picks the nearest ionized calcium."""
+    off), the 1 that picks the nearest ionized calcium, and the 2, [1] and
+    [2] that pick a lab's last and previous result."""
     code = "\n".join(line.split("--")[0] for line in ANTICOAG_FEATURES_SQL.read_text().splitlines())
-    code = code.replace("INTERVAL '1 hour'", "").replace(") = 1", ")")
+    for allowed in ("INTERVAL '1 hour'", ") = 1", ", 2)", "[1]", "[2]"):
+        code = code.replace(allowed, "")
     assert not re.findall(r"\b(?!0(?![.\d]))\d+(?:\.\d+)?\b", code)
 
 
@@ -121,9 +124,12 @@ def test_one_row_per_prediction_row_and_every_column_without_data():
     row = rows[(1, 4)]
     for s in list(SIG) + list(LAB) + ["calcium_ratio"]:
         assert row[f"{s}_last"] is None and row[f"{s}_hours_since_last"] is None
+    for s in list(LAB) + ["calcium_ratio"]:
+        assert row[f"{s}_delta"] is None and row[f"{s}_delta_hours"] is None
     for s in SIG:
         for w in WINDOWS:
             assert row[f"{s}_{w}h_n"] == 0
+        assert f"{s}_delta" not in row
     assert row["anticoag_class"] is None
 
 
@@ -196,15 +202,17 @@ def test_lab_counts_only_once_stored():
     assert rows[(1, 3)]["ionized_calcium_hours_since_last"] == 2
 
 
-def test_lab_before_the_circuit_counts_within_the_longest_window():
+def test_lab_before_the_circuit_counts_within_the_lab_lookback():
     """A lab is the patient's, not the filter's: a draw before circuit_start
-    still counts, back to the longest window."""
-    rows = (Chart().circuit(1, LONG, LONG + 2)
+    still counts, back to features.lab_lookback_hours, not the longest
+    window."""
+    rows = (Chart().circuit(1, LOOKBACK, LOOKBACK + 2)
             .lab("ionized_calcium", 0.5, ICA).lab("total_calcium", 1, TCA).run())
-    assert rows[(1, LONG)]["total_calcium_last"] == TCA
-    assert rows[(1, LONG)]["ionized_calcium_last"] == ICA
-    assert rows[(1, LONG + 1)]["ionized_calcium_last"] is None
-    assert rows[(1, LONG + 1)]["total_calcium_last"] == TCA
+    assert LOOKBACK > LONG
+    assert rows[(1, LOOKBACK)]["total_calcium_last"] == TCA
+    assert rows[(1, LOOKBACK)]["ionized_calcium_last"] == ICA
+    assert rows[(1, LOOKBACK + 1)]["ionized_calcium_last"] is None
+    assert rows[(1, LOOKBACK + 1)]["total_calcium_last"] == TCA
 
 
 def test_other_patients_labs_never_count():
@@ -226,6 +234,14 @@ def test_results_at_one_charttime_are_averaged_and_wait_for_the_later():
             .lab("total_calcium", 1, TCA + 1, stored_h=2.5).run())
     assert rows[(1, 2)]["total_calcium_last"] is None
     assert rows[(1, 3)]["total_calcium_last"] == pytest.approx(TCA)
+
+
+def test_lab_delta_is_last_minus_previous():
+    rows = (Chart().circuit(1, 0, 6)
+            .lab("ionized_calcium", 1, ICA).lab("ionized_calcium", 4, ICA - 0.1).run())
+    assert rows[(1, 3)]["ionized_calcium_delta"] is None
+    assert rows[(1, 6)]["ionized_calcium_delta"] == pytest.approx(-0.1)
+    assert rows[(1, 6)]["ionized_calcium_delta_hours"] == 3
 
 
 # ── Total:ionized ratio ───────────────────────────────────────────────────
@@ -259,3 +275,13 @@ def test_ratio_waits_for_both_results():
     assert rows[(1, 2)]["ionized_calcium_last"] == ICA
     assert rows[(1, 2)]["calcium_ratio_last"] is None
     assert rows[(1, 3)]["calcium_ratio_last"] is not None
+
+
+def test_ratio_delta_is_between_successive_pairs():
+    first = TCA / MG_PER_MMOL / ICA
+    second = (TCA + 1) / MG_PER_MMOL / ICA
+    rows = (Chart().circuit(1, 0, 6)
+            .lab("total_calcium", 1, TCA).lab("ionized_calcium", 1, ICA)
+            .lab("total_calcium", 4, TCA + 1).lab("ionized_calcium", 4, ICA).run())
+    assert rows[(1, 6)]["calcium_ratio_delta"] == pytest.approx(second - first)
+    assert rows[(1, 6)]["calcium_ratio_delta_hours"] == 3

@@ -2,6 +2,176 @@
 
 Every judgment call, with its date (plan Part 14). Newest first.
 
+## 2026-10-04 — Laboratory features
+
+**Decision.** `sql/lab_features.sql` builds the coagulation/hematology and
+chemistry feature groups (Part 7, fourth and seventh bullets) as one table,
+`lab_features`, in stage 5 of `run_all.sh`. It has one row per
+`circuit_failure_labels` row, the same grid as `machine_features`, and 58
+columns. For each of 14 labs: the last value, the hours since its draw, the
+change from the previous result, and the hours between the two draws.
+
+| Group | Labs (`hosp.labevents` itemid) |
+|---|---|
+| `coagulation_hematology` | platelets 51265, INR 51237, PTT 51275, fibrinogen 51214, hemoglobin 51222, hematocrit 51221 |
+| `chemistry` | phosphate 50970, potassium 50971, magnesium 50960, bicarbonate 50882, BUN 51006, creatinine 50912, glucose 50931, triglycerides 51000 |
+
+The groups are the keys of `features.lab_groups`, so an ablation by group
+(Part 7) reads them from the config.
+
+The calcium labs of `anticoag_features` (ionized, total and their ratio)
+now follow the same rules: the 24 h lookback and the change from the
+previous result. That table goes from 49 to 55 columns, and the calcium
+labs stay in the anticoagulation group. Both changes were confirmed by the
+authors 2026-10-04.
+
+**Itemids.** The itemid review (2026-10-02) takes labs from the mimic-code
+coagulation, complete_blood_count and chemistry concepts. Fetched
+2026-10-04, they supply 11 of the 14. Magnesium, phosphate and
+triglycerides are in no concept. Phosphate is the hypophosphatemia
+outcome's item: the config aliases one to the other. Every candidate in
+`d_labitems` matching these analytes was checked by label, unit, and rows
+and circuits inside included circuits. The items kept, and the
+alternatives named here, were also checked by era. Each item kept has a
+single unit. The blood-gas items are left out: 50822 potassium, 50809
+glucose, 50804 total CO2, 50811 hemoglobin, 50810 hematocrit. They are
+whole-blood results that mimic-code keeps in a separate concept (`bg`).
+Mixing them with the serum results would need a harmonisation rule.
+
+**The judgment calls.**
+
+- **One lookback for every lab: 24 h** (`features.lab_lookback_hours`).
+  Platelets, INR and PTT are often drawn once a day: their p90 gap between
+  draws inside a circuit is 23–24 h. Share of scored circuit-failure rows
+  with a result:
+
+  | Lab | 12 h | 24 h | 48 h |
+  |---|--:|--:|--:|
+  | platelets | 77.1% | 98.2% | 99.6% |
+  | INR | 61.4% | 89.3% | 96.5% |
+  | PTT | 66.3% | 89.8% | 96.5% |
+  | fibrinogen | 19.0% | 28.9% | 39.7% |
+  | hemoglobin, hematocrit | 77–80% | 98–99% | 99.6% |
+  | chemistry, except triglycerides | 91–94% | 98.9–99.4% | 99.6% |
+  | triglycerides | 4.1% | 11.0% | 19.9% |
+
+  24 h is the same as `hypophosphatemia.known_value_max_age_hours`.
+  `_hours_since_last` carries the age of the value, so an old result is not
+  read as a fresh one. The calcium labs looked back 12 h, the longest
+  feature window (2026-10-04, "Anticoagulation features"). They move to
+  24 h so that every lab follows one rule. Ionized calcium goes from 99.4%
+  to 99.6% of scored rows, total calcium from 90.8% to 99.2%, and the ratio
+  from 87.2% to 97.4%.
+- **The last value and the change from the previous result, without window
+  statistics.** The median gap between draws inside a circuit is 6.0–7.8 h
+  (triglycerides 23.7 h), so a feature window rarely holds the
+  `min_points_for_trend` a slope needs. The level alone hides the
+  direction: a platelet count of 90 that was 200 the day before (consumption
+  in the filter, heparin-induced thrombocytopenia) reads like a stable 90.
+  So does a phosphate falling towards the hypophosphatemia threshold.
+  `<lab>_delta` is the last value minus the one drawn before it, both among
+  the results that count at *t*. `<lab>_delta_hours` is the time between
+  the two draws, so the model can weigh a change by how fast it happened.
+  The rule is the same for every lab, so no lab is singled out after the
+  fact. A result that has been drawn but not yet stored is skipped, not
+  waited for.
+- **D-dimer is left out.** Part 7 says "where available". 51196 is drawn in
+  2.7 / 1.1 / 1.4 / 1.5 / 11.5% of circuits by era (2008–10 … 2020–22).
+  50915, a second D-dimer item, is drawn in under 1.5% and never in
+  2020–22. In 2008–10 it is reported in two units, ng/mL and ng/mL FEU,
+  about twofold apart. A model trained before 2020 would see it in 1–3% of
+  circuits and the test era in 11.5%, so its presence would encode the era.
+  Charted TMP was left out of the machine group for the same reason.
+- **Triglycerides are kept, with era drift.** Part 7 names them for
+  lipid-related circuit clotting (propofol). They are present in 7.3 / 6.2 /
+  7.6 / 12.3 / 19.6% of scored rows by era, nearly three times as often in
+  the test era as in 2008–16. They are also stored a median 258 min after
+  the draw (p95 665). Temporal validation (Part 9.2) must report this.
+  When the missingness group (Part 7) is built, "measured" encodes
+  clinician suspicion more strongly here than for any other lab. Fibrinogen
+  drifts less: 22.5% of scored rows in 2008–10, 35.5% in 2017–19, 31.0% in
+  2020–22.
+- **Bounds come from the data.** They are taken over every result the
+  features can read, `circuit_start` − 24 h to `circuit_end`, because
+  pre-CRRT labs are where BUN, creatinine and potassium are most extreme.
+  They go to the mentor's clinical plausibility review. Unlike
+  nursing-charted machine values, these are analyser results. So a value is
+  cut only if it is impossible (creatinine 0; mimic-code drops it too) or
+  sits alone past an empty stretch of the tail. Every other bound is the
+  edge of the data and cuts nothing.
+
+  | itemid | Lab | Bound | Rows | Below (circuits) | Above (circuits) |
+  |---|---|---|--:|--:|--:|
+  | 51265 | platelets, K/uL | 5 to 1300 | 45,552 | 0 | 0 |
+  | 51237 | INR | 0.7 to 27.5 | 34,832 | 0 | 0 |
+  | 51275 | PTT, sec | 18 to 150 | 39,761 | 0 | 0 |
+  | 51214 | fibrinogen, mg/dL | 25 to 1800 | 12,098 | 0 | 0 |
+  | 51222 | hemoglobin, g/dL | 2.5 to 25 | 45,091 | 0 | 0 |
+  | 51221 | hematocrit, % | 7 to 72 | 48,212 | 0 | 0 |
+  | 50970 | phosphate, mg/dL | 0.5 to 24 | 54,755 | 0 | <10 (<10) |
+  | 50971 | potassium, mEq/L | 1.25 to 10 | 63,432 | 0 | 0 |
+  | 50960 | magnesium, mg/dL | 0.6 to 8.5 | 55,874 | 0 | <10 (<10) |
+  | 50882 | bicarbonate, mEq/L | 2 to 45 | 62,077 | 0 | 0 |
+  | 51006 | BUN, mg/dL | 1 to 260 | 55,364 | 0 | <10 (<10) |
+  | 50912 | creatinine, mg/dL | 0.1 to 22 | 55,374 | <10 (<10) | <10 (<10) |
+  | 50931 | glucose, mg/dL | 10 to 1300 | 60,743 | <10 (<10) | <10 (<10) |
+  | 51000 | triglycerides, mg/dL | 15 to 4000 | 2,788 | 0 | 0 |
+
+  The empty stretches are: phosphate 24–27, magnesium 8.5–11, BUN 260–300,
+  creatinine 22–32, glucose 6–10 and 1300–1600. No numeric platelet count
+  anywhere in MIMIC-IV is below 5. 1,499 platelet results without a number
+  carry "<" or "less than", so lower counts are reported as text and are
+  missing. 886 PTT results are 150, the analyser's ceiling (">150"). They
+  are kept as 150.
+
+  The calcium bounds (2026-10-04, "Anticoagulation features") were set on
+  rows inside circuits and are not re-derived here. Over the 24 h lookback
+  they cut more: ionized calcium 92 of 78,044 results below 0.6 and 16
+  above 2.0 (inside circuits, 74 and under 10); total calcium 11 of 54,607
+  below 4 and 21 above 15 (under 10 and 11). The extra results are mostly
+  from before CRRT and may be real hypercalcaemia, itself a reason to start
+  dialysis. They go to the clinical plausibility review.
+- **Duplicates and timing follow the calcium labs.** Results of one item at
+  one `charttime` are averaged and are available at the latest `storetime`.
+  Inside included circuits, under 30 per item have two different values.
+  Every result has a `storetime`, and none is before its draw. The median
+  delay is 64–66 min for chemistry, 34–35 min for blood counts and
+  54–57 min for INR, PTT and fibrinogen.
+
+**What this costs.** Both draws of a change must fall inside the lookback.
+A lab drawn once a day therefore often has a last value and no change: INR
+in 43.7% of scored rows has one, fibrinogen in 13.2%, triglycerides in 0.7%
+(table below). A longer reach for the previous result would fill these
+in, but at the price of a second lookback rule.
+
+**Coverage, scored circuit-failure rows (317,028).**
+
+| Lab | Has last | Median last | Median hours since | Has change |
+|---|--:|--:|--:|--:|
+| `platelets` | 98.2% | 113 K/uL | 6.1 | 65.5% |
+| `inr` | 89.3% | 1.4 | 7.8 | 43.7% |
+| `ptt` | 89.8% | 42.1 sec | 6.6 | 51.9% |
+| `fibrinogen` | 28.9% | 262 mg/dL | 8.2 | 13.2% |
+| `hemoglobin` | 98.3% | 8.6 g/dL | 6.1 | 65.9% |
+| `hematocrit` | 98.5% | 26.7% | 5.8 | 69.7% |
+| `phosphate` | 99.3% | 3.0 mg/dL | 5.3 | 91.3% |
+| `potassium` | 99.2% | 4.2 mEq/L | 4.7 | 93.3% |
+| `magnesium` | 99.4% | 2.0 mg/dL | 5.2 | 92.4% |
+| `bicarbonate` | 99.4% | 22 mEq/L | 4.8 | 94.0% |
+| `bun` | 99.3% | 25 mg/dL | 5.3 | 92.1% |
+| `creatinine` | 99.4% | 1.6 mg/dL | 5.3 | 92.1% |
+| `glucose` | 98.9% | 144 mg/dL | 4.8 | 90.8% |
+| `triglycerides` | 11.0% | 270 mg/dL | 14.6 | 0.7% |
+| `ionized_calcium` | 99.6% | 1.11 mmol/L | 3.0 | 98.1% |
+| `total_calcium` | 99.2% | 8.9 mg/dL | 5.3 | 90.7% |
+| `calcium_ratio` | 97.4% | 2.01 | 5.5 | 83.0% |
+
+**Where it applies.** Plan Parts 6.4, 7 and 9.2. `sql/lab_features.sql`,
+`sql/anticoag_features.sql`. `config/config.yaml → features.lab_groups`,
+`lab_lookback_hours`, `calcium_labs`, `plausibility_bounds` (the 14 items).
+Columns are defined in `docs/data_dictionary.md`, "`lab_features`" and
+"`anticoag_features`".
+
 ## 2026-10-04 — The package runs on Python alone
 
 **Decision.** The exported package now runs by itself: no uv, no
@@ -533,6 +703,10 @@ being built, or named as handled elsewhere, fails it.
 analysis schemas".
 
 ## 2026-10-04 — Anticoagulation features
+
+*Partly superseded the same day by "Laboratory features", above: the
+calcium labs now look back `features.lab_lookback_hours` (24 h), not the
+longest window, and carry the change from the previous result.*
 
 **Decision.** `sql/anticoag_features.sql` builds the anticoagulation feature
 group (Part 7, third bullet) as `anticoag_features`, in stage 5 of
