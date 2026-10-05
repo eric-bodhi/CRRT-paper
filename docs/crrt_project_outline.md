@@ -16,7 +16,7 @@ Already saturated: mortality after CRRT initiation, prediction of *who will need
 
 Genuinely open: **intra-treatment complications** — the things that go wrong *during* CRRT, hour to hour. These are under-modeled because they require machine-level data that most databases lack and MIMIC-IV actually has (hourly circuit pressures, blood flow rate, effluent/dialysate/replacement rates, filter change events, anticoagulation).
 
-**Update, 2026-10-02: the clotting part of this lane is now partly occupied on MIMIC.** Yang et al. 2024 (*Intensive Crit Care Nurs* 84:103703, PMID 38704337) built a premature-clotting model on MIMIC-III CareVue plus MIMIC-IV and validated it on eICU. It is a static logistic model with one row per patient, AUROC 0.877. What is still open is the dynamic version: hour by hour, per circuit. So the novelty has to come from the task and the outcome definition, exactly as the first paragraph says, not from beating anyone's AUROC. Part 3.1 sets out the contributions.
+**Update, 2026-10-02: the clotting part of this lane is now partly occupied on MIMIC.** Yang et al. 2024 (*Intensive Crit Care Nurs* 84:103703, PMID 38704337) built a premature-clotting model on MIMIC-III CareVue plus MIMIC-IV and validated it on eICU. It is a static logistic model with one row per patient, AUROC 0.877. Its predictors are summarised over the whole CRRT run, and its label counts sustained TMP >300 mmHg as clotting (full text read 2026-10-05; `docs/decisions.md`). What is still open is the dynamic version: hour by hour, per circuit. So the novelty has to come from the task and the outcome definition, exactly as the first paragraph says, not from beating anyone's AUROC. Part 3.1 sets out the contributions.
 
 ---
 
@@ -102,7 +102,7 @@ The paper rests on three contributions, plus an optional fourth.
 4. *(Optional)* **The cost of common design errors.** Measure how much AUROC inflates when train/test is split by circuit instead of patient, and when pressure is used both to define the label and as a feature. This explains why earlier numbers look high without accusing any specific paper.
 
 Two things to do before the protocol is locked (Part 13, weeks 3–4):
-- **Get Yang 2024's full text** through the USC library and confirm how they defined clotting and circuits. The framing above depends on it.
+- ~~**Get Yang 2024's full text** through the USC library and confirm how they defined clotting and circuits.~~ Done 2026-10-05. The framing above stands: Yang's unit is the patient's first session, and its circuits are never defined (`docs/decisions.md`, "Yang 2024 read in full").
 - **Pre-register these contributions on OSF (Part 12) before any model is fit**, so the claim is timestamped. The registration must disclose that the feasibility counts in `docs/feasibility.md` (event rates, label distributions) were seen first.
 
 **3.2 Why you also want the hypophosphatemia arm.** Circuit failure carries real label risk (see 5.1). Hypophosphatemia is insurance: unambiguous label, high event rate — reported as high as 65% with non-phosphate-containing CRRT solutions, and 27–78% depending on dialysis intensity and duration — and the existing MIMIC-IV phosphate work is about the *impact* of phosphate levels on extubation failure and mortality, i.e. association, not forward prediction. Nobody has built "will this patient drop below 2.0 mg/dL in the next 24 hours."
