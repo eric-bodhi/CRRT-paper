@@ -112,6 +112,7 @@ machine items".
 | Calcium labs (`labevents`): 50808 Free Calcium, 50893 Calcium, Total | As above. Decision: `docs/decisions.md` 2026-10-04, "Anticoagulation features". | `features.plausibility_bounds` |
 | Coagulation/hematology and chemistry labs (`labevents`): the 14 items of `features.lab_groups` | As above. Decision: `docs/decisions.md` 2026-10-04, "Laboratory features". | `features.plausibility_bounds` |
 | Hemodynamics: 220052, 225312, 220181 mean pressures; 220045 Heart Rate; 223762, 223761 Temperature (each in its own unit); 50813 Lactate (`labevents`) | As above. Decision: `docs/decisions.md` 2026-10-04, "Hemodynamic features". | `features.plausibility_bounds` |
+| Body size (`chartevents`): 226512, 226531, 224639 weights; 226730, 226707 heights | As above, in each item's charted unit (kg, lb, kg, cm, inches). Decision: `docs/decisions.md` 2026-10-05, "Static features". | `features.plausibility_bounds` |
 | Raw circuit pressures 224149, 224150, 224151, 224152 | Exception: a value past a bound by at most the margin is set to the bound (a sensor at its limit). Further out, missing. | `features.pressure_clip_margin_mmhg`, `features.pressure_clip_itemids` |
 
 TMP and pressure drop derived from the raw pressures (feasibility §1) are
@@ -604,6 +605,87 @@ each of `features.window_hours`.
 | `<v>_<w>h_var` | signal unit² | Sample variance. Null below `features.min_points_for_trend` values. |
 | `lactate_last`, `lactate_hours_since_last`, `lactate_delta`, `lactate_delta_hours` | mmol/L, hours | As `<l>_last` … `<l>_delta_hours` in `lab_features`. |
 
+## `static_features`
+
+The static feature group (Part 7, eighth bullet). **One row per circuit**
+of `circuit_failure_labels`, not per prediction row: join on `circuit_id`.
+Built by `sql/static_features.sql`, run from `uv run python -m
+crrt.features` (stage 5 of `run_all.sh`). Decision: `docs/decisions.md`
+2026-10-05, "Static features".
+
+**CRRT start.** Every value is the stay's at CRRT start, the start of its
+first included circuit (`crrt_cohort`: the stay's first circuit of at least
+`cohort.min_session_duration_hours`). The circuits of a stay share the
+values. A value counts only if it was charted and stored by CRRT start,
+the earliest prediction time of the stay. That makes it known at every
+prediction time of both outcomes. `hypophos_labels` has no warm-up, so a
+looser rule could not rely on one.
+
+**Sources.**
+
+| Column | Table | itemid / column | Unit |
+|---|---|---|---|
+| `weight_kg` | `chartevents` | 226512 Admission Weight (Kg); 226531 Admission Weight (lbs.), ÷ `features.lb_per_kg`; 224639 Daily Weight | kg |
+| `height_cm` | `chartevents` | 226730 Height (cm); 226707 Height (inches), × `features.cm_per_inch` | cm |
+| `age_years` | `crrt_cohort` | `age_years` | years |
+| `sex` | `patients` | `gender` | |
+| `admission_type` | `admissions` | `admission_type` | |
+| `service` | `services` | `curr_service`, `transfertime` | |
+| `sofa_no_cv` | `mimiciv_derived.sofa` | `respiration_24hours`, `coagulation_24hours`, `liver_24hours`, `cns_24hours`, `renal_24hours`, `endtime` | points |
+| `sepsis3` | `mimiciv_derived.sepsis3` | `antibiotic_time`, `culture_time`, `sofa_time`, `sepsis3` | |
+
+**Cleaning rules.**
+
+- Body size: a measurement must be inside its plausibility bound, in its
+  charted unit. Out of bound is missing, never clipped. Values are then
+  converted to kg or cm. Values of one charttime (226730 and 226707 are
+  charted together) are averaged and available at the latest `storetime`.
+- Only the stay's own `chartevents` rows count (matched on `stay_id`).
+- A grouped column is null for a value missing from its config map.
+
+**Columns.**
+
+| Column | Type / unit | Definition |
+|---|---|---|
+| `circuit_id` | | As in `circuit_failure_labels`. |
+| `age_years` | years | Age at ICU admission (`crrt_cohort`). |
+| `sex` | text | `F` or `M`. |
+| `weight_kg` | kg | The earliest weight charted in the stay, among those stored by CRRT start. Usually the admission weight (charted at ICU admission); a daily weight only when neither admission weight is stored by then. Null if none. |
+| `height_cm` | cm | The earliest height charted in the stay, among those stored by CRRT start. Null if none. |
+| `bmi` | kg/m² | `weight_kg` / (`height_cm` / `features.cm_per_m`)². Null unless both are known. |
+| `admission_type` | text | `admissions.admission_type` grouped by `features.admission_type_groups`: `scheduled` or `unscheduled`. |
+| `service` | text | `curr_service` of the admission's latest `services` row with `transfertime` ≤ CRRT start, grouped by `features.service_groups`: `medicine`, `cardiac_medicine`, `cardiac_surgery`, `surgery`. Null if no row by then. |
+| `sofa_no_cv` | points, 0–20 | SOFA without its cardiovascular score: the sum of the respiration, coagulation, liver, CNS and renal 24 h scores of the stay's last `mimiciv_derived.sofa` hour with `endtime` ≤ CRRT start. Null if the stay has no such hour (CRRT charted before the stay's first heart rate, where mimic-code's hourly grid starts). |
+| `sepsis3` | boolean | The stay's `mimiciv_derived.sepsis3` row has `antibiotic_time`, `culture_time` and `sofa_time` all ≤ CRRT start: infection suspected and SOFA ≥ 2 by then. False otherwise, including stays with no row. |
+
+## `mimiciv_derived` and its source views
+
+Built by `uv run python -m crrt.concepts` (stage 0b of `run_all.sh`). Read
+by `static_features` only. Decision: `docs/decisions.md` 2026-10-05,
+"Static features".
+
+- **`mimiciv_derived`**: the tables of 22 mimic-code concepts, vendored
+  unmodified in `sql/mimic_code/` (commit and licence in its README). Each
+  table is defined by mimic-code's documentation, with one difference: its
+  inputs are the source views below, so every time in it is a time of
+  availability.
+- **`mimiciv_hosp`, `mimiciv_icu`**: views over `main`, one per table the
+  concepts read (`crrt.concepts.SOURCES`).
+
+| View | Change from `main` |
+|---|---|
+| `mimiciv_hosp.labevents` | `charttime` = greatest(`charttime`, `storetime`) |
+| `mimiciv_icu.chartevents` | `charttime` = greatest(`charttime`, `storetime`) |
+| `mimiciv_icu.outputevents` | `charttime` = greatest(`charttime`, `storetime`) |
+| `mimiciv_icu.inputevents` | `starttime` = greatest(`starttime`, `storetime`). A rate segment stored at its end is never visible. |
+| `mimiciv_hosp.microbiologyevents`, `mimiciv_hosp.prescriptions`, `mimiciv_icu.icustays` | None. |
+
+**Read the decision before using these for a time-varying feature.** A
+vital sign or GCS row whose items were stored at different times appears
+as several rows. Pressor doses from `inputevents` are undercounted, so
+`cardiovascular_24hours` and `sofa_24hours` in `mimiciv_derived.sofa` are
+low.
+
 ## Sensitivity analysis schemas
 
 Built by `uv run python -m crrt.sensitivity` (stage 6 of `run_all.sh`).
@@ -620,13 +702,13 @@ rules of the `main` tables of the same name.
 | `unclear_exclude` | `outcomes.circuit_failure.unclear_handling_primary` | `circuit_failure_labels` |
 | `phosphate_below_1_5` | `outcomes.hypophosphatemia.moderate_mg_dl` | `hypophos_labels` |
 | `repletion_<handling>` | `outcomes.hypophosphatemia.repletion_handling_primary` | `hypophos_labels` |
-| `max_downtime_<h>h` | `circuits.max_downtime_hours` | `crrt_circuits` through `hemodynamic_features` |
-| `segment_gap_<h>h` | `sessionization.gap_hours` | `crrt_circuits` through `hemodynamic_features` |
+| `max_downtime_<h>h` | `circuits.max_downtime_hours` | `crrt_circuits` through `static_features` |
+| `segment_gap_<h>h` | `sessionization.gap_hours` | `crrt_circuits` through `static_features` |
 
 - A label analysis has the primary's grid (checked when it is built), so
   it joins `main.machine_features`, `main.anticoag_features`,
   `main.lab_features`, `main.access_features` and
   `main.hemodynamic_features` on (`circuit_id`,
-  `pred_time`).
+  `pred_time`), and `main.static_features` on `circuit_id`.
 - A circuit analysis renumbers `circuit_id`. Join its tables only to tables
   in the same schema.

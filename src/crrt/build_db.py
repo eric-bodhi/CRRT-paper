@@ -31,6 +31,7 @@ CSV_TABLES = [
     "hosp/d_icd_procedures",
     "hosp/d_labitems",
     "hosp/diagnoses_icd",
+    "hosp/microbiologyevents",
     "hosp/omr",
     "hosp/patients",
     "hosp/pharmacy",

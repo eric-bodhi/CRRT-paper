@@ -9,10 +9,11 @@
 #
 # Usage: ./run_all.sh
 #
-# Implemented so far: database build, the itemid evidence sweep, circuits, the
-# cohort with its STROBE flow, the adjudication sample, the outcome labels, the machine,
-# anticoagulation, coagulation/hematology, chemistry, vascular access and
-# hemodynamic features, and the sensitivity analyses.
+# Implemented so far: database build, the mimic-code concepts, the itemid
+# evidence sweep, circuits, the cohort with its STROBE flow, the adjudication
+# sample, the outcome labels, the machine, anticoagulation,
+# coagulation/hematology, chemistry, vascular access, hemodynamic and static
+# features, and the sensitivity analyses.
 
 set -euo pipefail
 
@@ -22,6 +23,12 @@ echo "config: ${CONFIG}"
 
 # 0. Load the CSVs into DuckDB; convert chartevents to Parquet (Part 2.1).
 uv run python -m crrt.build_db
+
+# 0b. The mimic-code concepts that the static features read (SOFA, Sepsis-3),
+#     vendored unmodified in sql/mimic_code/, run on source views whose times
+#     are times of availability -> schema mimiciv_derived. Reads no circuit
+#     table, so it runs once. Prints row counts only.
+uv run python -m crrt.concepts
 
 # 1a. Itemid evidence sweep -> docs/itemids.md (Part 2.3). Inclusion is then
 #     decided BY HAND in that file; this only gathers the evidence.
@@ -49,8 +56,9 @@ uv run python -m crrt.outcomes
 # 5. Features (Part 7): one row per prediction row, from data stored by the
 #    prediction time -> tables machine_features, anticoag_features,
 #    lab_features (coagulation/hematology and chemistry), access_features
-#    (vascular access) and hemodynamic_features. The other clinical groups
-#    to follow.
+#    (vascular access) and hemodynamic_features; one row per circuit, from
+#    data stored by CRRT start -> table static_features. The other clinical
+#    groups to follow.
 #    Prints aggregate coverage only.
 uv run python -m crrt.features
 

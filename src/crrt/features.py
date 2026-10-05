@@ -1,6 +1,6 @@
 """Build the feature tables (Part 7).
 
-So far six groups in five tables, each one row per prediction row of
+So far seven groups in six tables. Five are one row per prediction row of
 `circuit_failure_labels` (the same grid as `hypophos_labels`), from data
 available at the prediction time: the machine/circuit group
 (`machine_features`, rules in `sql/machine_features.sql`), the
@@ -9,7 +9,9 @@ anticoagulation group (`anticoag_features`, rules in
 groups (`lab_features`, rules in `sql/lab_features.sql`), the vascular
 access group (`access_features`, rules in `sql/access_features.sql`), and
 the hemodynamics group (`hemodynamic_features`, rules in
-`sql/hemodynamic_features.sql`).
+`sql/hemodynamic_features.sql`). The static group (`static_features`, rules
+in `sql/static_features.sql`) is one row per circuit, from data available
+at CRRT start; it reads the mimic-code concepts built by crrt.concepts.
 
 This module binds the SQL's parameters from config/config.yaml and prints
 an aggregate summary, with every count under
@@ -32,6 +34,7 @@ ANTICOAG_FEATURES_SQL = config.REPO_ROOT / "sql" / "anticoag_features.sql"
 LAB_FEATURES_SQL = config.REPO_ROOT / "sql" / "lab_features.sql"
 ACCESS_FEATURES_SQL = config.REPO_ROOT / "sql" / "access_features.sql"
 HEMODYNAMIC_FEATURES_SQL = config.REPO_ROOT / "sql" / "hemodynamic_features.sql"
+STATIC_FEATURES_SQL = config.REPO_ROOT / "sql" / "static_features.sql"
 
 
 def bind_machine_features(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
@@ -155,6 +158,37 @@ def bind_hemodynamic_features(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any
 def build_hemodynamic_features(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
     bind_hemodynamic_features(con, cfg)
     con.execute(HEMODYNAMIC_FEATURES_SQL.read_text())
+
+
+def bind_static_features(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
+    """Set every DuckDB variable that sql/static_features.sql reads."""
+    f = cfg["features"]
+    bounds = f["plausibility_bounds"]
+    to_kg = {"kg": 1.0, "lb": 1 / f["lb_per_kg"]}
+    to_cm = {"cm": 1.0, "in": float(f["cm_per_inch"])}
+
+    def items(units: dict[int, str], factor: dict[str, float], key: str) -> list[dict[str, Any]]:
+        return [{"itemid": itemid, key: factor[unit],
+                 "low": float(bounds[itemid][0]), "high": float(bounds[itemid][1])}
+                for itemid, unit in units.items()]
+
+    def groups(mapping: dict[str, str]) -> list[dict[str, str]]:
+        return [{"value": value, "grp": grp} for value, grp in mapping.items()]
+
+    _set(con, {
+        "weight_items": items(f["weight_items"], to_kg, "to_kg"),
+        "weight_itemids": list(f["weight_items"]),
+        "height_items": items(f["height_items"], to_cm, "to_cm"),
+        "height_itemids": list(f["height_items"]),
+        "cm_per_m": float(f["cm_per_m"]),
+        "admission_type_groups": groups(f["admission_type_groups"]),
+        "service_groups": groups(f["service_groups"]),
+    })
+
+
+def build_static_features(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
+    bind_static_features(con, cfg)
+    con.execute(STATIC_FEATURES_SQL.read_text())
 
 
 def summarize(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
@@ -340,6 +374,62 @@ def summarize_hemodynamics(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) 
     print()
 
 
+def summarize_static(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
+    """Coverage and distribution of each static feature, one row per stay
+    (its circuits share the values), overall and by era: several sources
+    drift by era (decisions.md, 2026-10-05, "Static features")."""
+    small = cfg["reporting"]["small_cell_threshold"]
+    columns = con.execute("SELECT * FROM static_features LIMIT 0").description
+    stays = ("FROM (SELECT DISTINCT ON (c.stay_id) s.*, p.anchor_year_group "
+             "FROM static_features AS s JOIN crrt_circuits AS c USING (circuit_id) "
+             "JOIN patients AS p ON p.subject_id = c.subject_id ORDER BY c.stay_id, s.circuit_id)")
+    circuits = con.execute("SELECT count(*) FROM static_features").fetchone()[0]
+    total = con.execute(f"SELECT count(*) {stays}").fetchone()[0]
+    print(f"static_features: {len(columns)} columns; {count(circuits, small)} circuits, "
+          f"{count(total, small)} stays")
+
+    def share(k: int, n: int) -> str:
+        return f"{k / n:.1%}" if k >= small else count(k, small)
+
+    eras = [e for (e,) in con.execute(f"SELECT DISTINCT anchor_year_group {stays} ORDER BY 1").fetchall()]
+    numeric = [d[0] for d in columns
+               if d[1] in ("DOUBLE", "INTEGER", "BIGINT") and d[0] != "circuit_id"]
+    print(f"\n{'feature':14s} {'has value':>10s} {'median [IQR]':>22s}  "
+          f"has value by era ({eras[0]} … {eras[-1]})")
+    for s in numeric:
+        k, q = con.execute(f"SELECT count({s}), quantile_cont({s}, [0.25, 0.5, 0.75]) {stays}").fetchone()
+        by_era = dict((e, (k_e, n_e)) for e, k_e, n_e in con.execute(
+            f"SELECT anchor_year_group, count({s}), count(*) {stays} GROUP BY 1").fetchall())
+        iqr = f"{q[1]:.4g} [{q[0]:.4g}, {q[2]:.4g}]" if k >= small else "—"
+        print(f"{s:14s} {share(k, total):>10s} {iqr:>22s}  "
+              + " / ".join(share(*by_era[e]) for e in eras))
+
+    # A suppressed cell could be recovered as the rest of its era, or as its
+    # value's total minus the other eras. So in an era with one suppressed
+    # cell the next smallest is withheld too ("—"), and so is the total of
+    # every value with a withheld cell.
+    categorical = [d[0] for d in columns if d[1] in ("VARCHAR", "BOOLEAN")]
+    print(f"\n{'feature':14s} {'value':14s} {'stays':>8s}  share by era ({eras[0]} … {eras[-1]})")
+    for s in categorical:
+        rows = con.execute(f"SELECT anchor_year_group, coalesce({s}::VARCHAR, '(none)'), count(*) "
+                           f"{stays} GROUP BY ALL").fetchall()
+        cell = {(e, v): k for e, v, k in rows}
+        n_era = {e: sum(k for (x, _), k in cell.items() if x == e) for e in eras}
+        small_cells = {ev for ev, k in cell.items() if k < small}
+        withheld = set(small_cells)
+        for e in eras:
+            in_era = sorted((k, v) for (x, v), k in cell.items() if x == e and (x, v) not in small_cells)
+            if sum(x == e for x, _ in small_cells) == 1 and in_era:
+                withheld.add((e, in_era[0][1]))
+        for v in sorted({r[1] for r in rows}):
+            n_v = sum(k for (_, x), k in cell.items() if x == v)
+            total = "—" if any((e, v) in withheld for e in eras) and n_v >= small else count(n_v, small)
+            print(f"{s:14s} {v:14s} {total:>8s}  " + " / ".join(
+                "—" if (e, v) in withheld - small_cells else share(cell.get((e, v), 0), n_era[e])
+                for e in eras))
+    print()
+
+
 def main() -> None:
     cfg = config.load()
     con = duckdb.connect(str(config.path(cfg, "duckdb")))
@@ -353,6 +443,8 @@ def main() -> None:
     summarize_access(con, cfg)
     build_hemodynamic_features(con, cfg)
     summarize_hemodynamics(con, cfg)
+    build_static_features(con, cfg)
+    summarize_static(con, cfg)
     con.close()
 
 
