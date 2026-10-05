@@ -115,6 +115,10 @@ itemid_inventory:
     - creatinine
     - renal
     - kidney
+    # Body size, the static group (Part 7). Added 2026-10-05.
+    - weight
+    - height
+
 
   # Reported per candidate as evidence. Part 2.3 says eyeball the value
   # distribution before trusting an itemid.
@@ -510,6 +514,19 @@ features:                                   # Plan Part 7
     # (971), left missing as mimic-code does, not repaired.
     223762: [28, 43]        # Temperature Celsius.
     223761: [82.4, 109.4]   # Temperature Fahrenheit.
+    # chartevents body size, the static group. Decided 2026-10-05
+    # (docs/decisions.md, "Static features"); to the mentor's plausibility
+    # review. Set on every row of the CRRT stays. Weight is cut where the
+    # data are empty: no weight in [20, 30) kg (below it, 0s and a few
+    # single-digit or teen values), none in (340, 540) kg. Height takes
+    # mimic-code's height concept's bounds (120-230 cm), both inside empty
+    # stretches here: no height in (80, 139) cm, none above 210.
+    226512: [30, 350]       # Admission Weight (Kg).
+    224639: [30, 350]       # Daily Weight, kg. 708 rows below are mostly 0.
+    226531: [66, 770]       # Admission Weight (lbs.), 30-350 kg at lb_per_kg.
+    226730: [120, 230]      # Height (cm).
+    226707: [47, 91]        # Height, inches: 120-230 cm.
+
     50813: [0.3, 30]        # Lactate, blood gas, mmol/L. The edge of the data.
 
   # Raw circuit pressures only: a value past a bound by at most this much is
@@ -660,6 +677,74 @@ features:                                   # Plan Part 7
   # the lab groups' columns. 50813 is the only lactate item in any era.
   hemodynamic_labs:
     lactate: 50813          # Lactate, blood gas, mmol/L
+
+  # The static feature group (Part 7, eighth bullet), built by
+  # sql/static_features.sql: one row per circuit, every value the stay's at
+  # CRRT start and stored by then. Decided 2026-10-05 (docs/decisions.md,
+  # "Static features"). SOFA and Sepsis-3 come from the mimic-code concepts
+  # (crrt.concepts); Charlson, SAPS-II and an ICD primary diagnosis are
+  # left out, see the decision.
+  # Body size: chartevents itemid: charted unit. The earliest measurement
+  # charted in the stay among those stored by CRRT start. Each needs an
+  # entry in plausibility_bounds, in its charted unit.
+  weight_items:
+    226512: kg              # Admission Weight (Kg). Charted at ICU admission;
+                            # stored a median 2 h later, p95 14 days.
+    # The same admission weight in pounds (one value per stay; 226531/226512
+    # = 2.2 at the median), stored when charted: present when 226512 is
+    # stored after CRRT start.
+    226531: lb              # Admission Weight (lbs.)
+    224639: kg              # Daily Weight, when neither admission weight is stored
+  # 226531 / 226512 in the same stay: median 2.2, p5-p95 2.199-2.202. The
+  # charting system converts with 2.2, so this reproduces 226512.
+  lb_per_kg: 2.2
+  height_items:
+    226730: cm              # Height (cm)
+    226707: in              # Height, inches. Charted with 226730.
+  cm_per_inch: 2.54
+  cm_per_m: 100
+  # admissions.admission_type: group. Every MIMIC-IV 3.1 value. Two groups
+  # only: the unscheduled types are relabelled across eras (CRRT stays
+  # coded EW EMER. or DIRECT EMER. fall from 57.7% in 2008-10 to 40.3% in
+  # 2020-22, URGENT rises from 21.8% to 36.2%, OBSERVATION ADMIT from 12.7%
+  # to 22.0%), so splitting them would encode the era. Scheduled vs not is
+  # the distinction SAPS-II scores.
+  admission_type_groups:
+    ELECTIVE: scheduled
+    SURGICAL SAME DAY ADMISSION: scheduled
+    EW EMER.: unscheduled
+    DIRECT EMER.: unscheduled
+    URGENT: unscheduled
+    OBSERVATION ADMIT: unscheduled
+    EU OBSERVATION: unscheduled
+    DIRECT OBSERVATION: unscheduled
+    AMBULATORY OBSERVATION: unscheduled
+  # services.curr_service at CRRT start: group. Every MIMIC-IV 3.1 value.
+  # Stands in for Part 7's "primary diagnosis category", which in MIMIC is
+  # a discharge ICD code (post-t). Medical vs surgical, cardiac or not.
+  service_groups:
+    MED: medicine
+    OMED: medicine          # oncology
+    NMED: medicine          # neurology
+    PSYCH: medicine
+    NB: medicine            # newborn; none in the cohort
+    NBB: medicine           # newborn baby; none in the cohort
+    CMED: cardiac_medicine
+    CSURG: cardiac_surgery
+    SURG: surgery
+    VSURG: surgery
+    TSURG: surgery          # thoracic
+    NSURG: surgery
+    TRAUM: surgery
+    ORTHO: surgery
+    GU: surgery
+    GYN: surgery
+    OBS: surgery
+    ENT: surgery
+    EYE: surgery
+    DENT: surgery
+    PSURG: surgery          # plastic
+
 
 
 reporting:                                  # Plan Part 1.4

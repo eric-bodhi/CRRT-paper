@@ -2,6 +2,247 @@
 
 Every judgment call, with its date (plan Part 14). Newest first.
 
+## 2026-10-05 — Static features
+
+**Decision.** `sql/static_features.sql` builds the static group (Part 7,
+eighth bullet) as `static_features` in stage 5 of `run_all.sh`. It has
+**one row per circuit** (8,414), not per prediction row, and 10 columns.
+Every value is the stay's at CRRT start, from data stored by then. SOFA
+and Sepsis-3 come from mimic-code concepts, vendored unmodified in
+`sql/mimic_code/` and built by a new stage 0b (`crrt.concepts`) on source
+views whose times are times of availability. `build_db` now also loads
+`hosp/microbiologyevents`, which Sepsis-3 needs.
+
+| Part 7 lists | Became | |
+|---|---|---|
+| age, sex | `age_years`, `sex` | |
+| weight, BMI | `weight_kg`, `height_cm`, `bmi` | stored by CRRT start |
+| admission type | `admission_type` | scheduled or unscheduled |
+| SOFA at CRRT start | `sofa_no_cv` | without the cardiovascular score |
+| sepsis flag | `sepsis3` | mimic-code Sepsis-3, complete by CRRT start |
+| primary diagnosis category | `service` | service at CRRT start |
+| Charlson | — | left out |
+| SAPS-II at CRRT start | — | left out |
+
+**For the authors to confirm.** Leaving out Charlson and SAPS-II; service
+as the stand-in for the diagnosis category; SOFA without its
+cardiovascular score; collapsing admission type to two groups. Each is
+argued below.
+
+**The judgment calls.**
+
+- **One anchor: CRRT start, and only what is stored by then.** Part 7 says
+  "at CRRT start". CRRT start is the cohort's: the stay's first included
+  circuit. It is also the earliest prediction time of the stay, and
+  `hypophos_labels` scores rows from the first hour (it has no warm-up).
+  So "stored by CRRT start" is the one rule that makes every value known
+  at every prediction row of both outcomes. For a later circuit the values
+  are days old by design. The time-varying groups carry the current state.
+- **mimic-code's concepts, run on times of availability.** The leakage
+  checklist requires `storetime` for labs, and SOFA reads platelets,
+  bilirubin, creatinine and blood gases. mimic-code's concepts use
+  `charttime`. CLAUDE.md rules out rewriting them, and censoring their
+  inputs at each stay's CRRT start would tie them to the circuit
+  definition, so every circuit sensitivity analysis would need its own
+  build. Instead the concepts read views in which `charttime` is
+  greatest(`charttime`, `storetime`) for labevents, chartevents and
+  outputevents, and `starttime` is greatest(`starttime`, `storetime`) for
+  inputevents. That is the `available_at` rule `machine_features` and
+  `lab_features` already use. An hourly concept row then holds only what
+  was stored by its hour. The views read no circuit table, so the stage
+  runs once (about 6 minutes, 4.4 of them `suspicion_of_infection`). The
+  costs, in CRRT stays:
+  - A row whose items were stored at different times splits in two. That
+    happens at 28% of vital-sign charttimes (median spread 25 min) and
+    3.5% of GCS charttimes. A split GCS row has components missing, which
+    mimic-code fills from the previous row or with normal values. The CNS
+    score can therefore read milder than charted. That is a loss, never a
+    leak. Vital signs feed only the cardiovascular score, which is left
+    out.
+  - A pressor segment stored at its end is never visible (see the next
+    item).
+  - The files are not changed, so the repo's no-numbers-in-SQL rule cannot
+    apply to them. `sql/mimic_code/README.md` says why.
+    `tests/test_concepts.py` checks each file against its SHA-256. It also
+    checks that every concept is built after the concepts it reads, and
+    that every table it reads has a source view.
+- **SOFA without its cardiovascular score.** The score needs vasopressor
+  rates from `inputevents`. Two problems:
+  - The share of CRRT stays with any `inputevents` row is 95.0 / 90.4 /
+    91.5 / 94.7 / 44.3% by era (2008–10 … 2020–22). The same gap is in
+    `procedureevents` and `ingredientevents`. It is not in
+    `outputevents` (97.7–98.9%).
+  - A bag that runs to completion is stored around its end. About half
+    the pressor segments running at a scored row are not yet stored
+    (2026-10-04, "Hemodynamic features").
+
+  Under the views above, the cardiovascular score at CRRT start averages
+  2.43 / 2.40 / 2.68 / 2.85 / 1.86 by era. The other five scores barely
+  move:
+
+  | Mean score at CRRT start | 2008–10 | 2011–13 | 2014–16 | 2017–19 | 2020–22 |
+  |---|--:|--:|--:|--:|--:|
+  | respiration | 1.88 | 1.98 | 2.04 | 1.85 | 1.87 |
+  | coagulation | 1.08 | 1.10 | 1.23 | 1.30 | 0.97 |
+  | liver | 0.89 | 1.21 | 1.16 | 1.26 | 1.31 |
+  | CNS | 0.68 | 0.61 | 0.54 | 0.59 | 0.60 |
+  | renal | 3.24 | 3.20 | 3.05 | 2.95 | 2.91 |
+  | cardiovascular (left out) | 2.43 | 2.40 | 2.68 | 2.85 | 1.86 |
+
+  So `sofa_no_cv` (0–20) is the sum of the other five. In the paper it is
+  "SOFA without the cardiovascular component", never "SOFA". The full
+  score would fit the `inputevents` sensitivity analysis (2008–19 only).
+  It is not added there; that is the authors' call. A stay has no score
+  when CRRT is charted before its first hourly SOFA row: 69 stays, 62 of
+  them because CRRT starts before the stay's first heart rate, where
+  mimic-code's hourly grid begins.
+- **Sepsis-3 complete by CRRT start.** mimic-code's `sepsis3` keeps, per
+  ICU stay, the first suspected infection with SOFA ≥ 2 from 48 h before
+  it to 24 h after. Its suspicion time is the earlier of the culture and
+  the antibiotic, but the suspicion exists only once both do. `sepsis3`
+  is therefore true only when `antibiotic_time`, `culture_time` and
+  `sofa_time` are all at or before CRRT start.
+  - Reading `suspected_infection_time` alone would flag 2,276 stays
+    instead of 1,912. About one flag in six would rest on an antibiotic, a
+    culture or a SOFA that came after CRRT start.
+  - The table keeps only the first suspicion per stay, so a later one
+    completed sooner can be missed. Applying the rule to every suspicion
+    row changes the count by at most 2 stays per era, so the table is used
+    as it is.
+  - A culture with only a date (3.5% of microbiology rows) is timed at
+    midnight by mimic-code. Fewer than 10 flagged stays have one on the
+    day of CRRT start.
+  - Antibiotics started before ICU admission do not count; mimic-code
+    gives them no `stay_id`.
+
+  Prevalence is 69.1 / 73.8 / 70.7 / 67.8 / 61.2% by era. It tracks a
+  suspected infection by CRRT start (79 / 83 / 81 / 78 / 70%).
+  `prescriptions` covers 99.2–99.9% of admissions in every era, so this
+  is not a data gap. It is reported for the temporal validation (Part
+  9.2).
+- **Charlson is left out.** The only sources are ICD codes, and neither
+  set works:
+  - Codes from the same admission are assigned at discharge (post-*t*).
+    Several Charlson conditions can begin during the stay or be the reason
+    for CRRT: acute MI, stroke, heart failure, hepatorenal syndrome (severe
+    liver disease), and renal disease, whose codes include dialysis
+    status and unspecified kidney failure. The chronic dialysis flag set
+    the precedent (2026-10-02): same-admission codes only in a sensitivity
+    flag.
+  - Codes from earlier admissions exist for 77.9 / 61.0 / 51.2 / 35.6 /
+    18.8% of stays by era. Their presence would encode the era, the reason
+    D-dimer was left out (2026-10-04).
+
+  The same era gradient applies to `src_prior_admission_icd`, one source
+  of the cohort's chronic dialysis flag. It is not changed here; flagged
+  for the authors.
+- **SAPS-II is left out.** mimic-code's SAPS-II covers the first 24 h of
+  the ICU stay. In 1,071 stays (38%) CRRT starts within 24 h of ICU
+  admission, so that window reads data from after CRRT start. In the rest
+  it is a day-one score, not one at CRRT start. Moving the window means
+  editing the validated concept. Its chronic-disease points come from
+  discharge ICD codes, as Charlson's do. Its other inputs are already
+  features: age and admission type in this group, GCS and PaO2/FiO2 in
+  `sofa_no_cv`, vital signs and chemistry in the time-varying groups.
+- **Service at CRRT start stands in for "primary diagnosis category".** In
+  MIMIC that category is the first discharge ICD code: post-*t*, and in
+  this cohort it can be the kidney injury itself. `services.curr_service`
+  has a timestamp. Its value at CRRT start is grouped as medicine, cardiac
+  medicine, cardiac surgery or surgery. The ICU type (`first_careunit`)
+  was considered. It overlaps service: 95% of MICU stays are medicine and
+  77% of CCU stays are cardiac medicine. The overlap is not complete:
+  25% of SICU stays are medicine, and CVICU is 66% cardiac surgery. It is
+  not added because Part 7 does not list it. Unit-level CRRT practice is
+  a candidate for the authors.
+- **Admission type: scheduled or unscheduled.** The unscheduled types
+  appear to be relabelled across eras. Among CRRT stays, EW EMER. plus
+  DIRECT EMER. falls from 57.7% (2008–10) to 40.3% (2020–22). URGENT
+  rises from 21.8% to 36.2%, and OBSERVATION ADMIT from 12.7% to 22.0%.
+  Splitting them would encode the era. Scheduled (ELECTIVE, SURGICAL SAME
+  DAY ADMISSION) against the rest is the distinction SAPS-II scores. It
+  covers 7.9 / 9.8 / 6.6 / 5.7% of stays to 2017–19 and fewer than 10 in
+  2020–22.
+- **Weight: the earliest charted in the stay, stored by CRRT start.**
+  - 226512, the admission weight, is backdated to ICU admission. It is
+    stored a median 2 h later (p95 14 days), so only 2,091 of 2,798 stays
+    have it stored by CRRT start.
+  - 226531 is the same weight in pounds (÷ 2.2, the charting system's
+    factor). It is stored when charted, so it fills in.
+  - The daily weight 224639 at CRRT start is a median 2.8 kg above the
+    admission weight (p95 23 kg). That gain is fluid, not body size, so a
+    daily weight is used only when it is the earliest stored.
+
+  Coverage is 94.3% (93.2–96.2% by era); reading `charttime` alone would
+  give 98.5%. `inputevents.patientweight` would add about 3 points, but
+  `inputevents` is missing for half the 2020–22 stays.
+- **Height and BMI: stored by CRRT start only.** Height is backdated to
+  ICU admission and stored a median 17 h later. Coverage is 55.8%: 51.9 /
+  47.1 / 56.1 / 60.6 / 63.2% by era. Two wider sources were rejected:
+  - Any height charted in the stay would give 80.8%. But a late entry is
+    more likely the longer the stay, and the checklist forbids anything
+    derived from length of stay.
+  - Outpatient height from `omr` before admission covers 53.1% of stays
+    in 2008–10 and 8.9% in 2020–22, so it would encode the era.
+
+  BMI follows height (55.5%). Both are kept, as triglycerides were, with
+  the era drift reported for temporal validation.
+- **Bounds come from the data.** They are set on every row of the CRRT
+  stays and go to the mentor's plausibility review (2026-10-04, "Clinical
+  review waits for a clinical mentor"). Weight is cut where the data are
+  empty. Height takes mimic-code's height-concept bounds, which fall in
+  empty stretches here.
+
+  | itemid | Item | Bound | Rows | Below (stays) | Above (stays) |
+  |---|---|---|--:|--:|--:|
+  | 226512 | Admission Weight, kg | 30 to 350 | 2,517 | 0 | 0 |
+  | 226531 | Admission Weight, lb | 66 to 770 | 6,981 | 18 (<10) | <10 (<10) |
+  | 224639 | Daily Weight, kg | 30 to 350 | 194,594 | 708 (47), nearly all 0 | <10 (<10) |
+  | 226730 | Height, cm | 120 to 230 | 2,261 | <10 (<10) | 0 |
+  | 226707 | Height, in | 47 to 91 | 2,261 | <10 (<10) | 0 |
+
+  No kg weight falls in 20–30 kg, and none in 340–540 kg. No height falls
+  in 80–139 cm, and none above 210 cm. The pound bound is the kg bound at
+  2.2 lb/kg. The 18 low pound values look like kilograms typed in the
+  pound field.
+
+**Itemids.** `weight` and `height` were added to
+`itemid_inventory.label_patterns`. The 11 new candidates are reviewed in
+`config/itemid_review.yaml`: 5 included, 6 excluded (feeding weight,
+weight-loss checkbox, APACHE and OT items).
+
+**Coverage, stays (2,798).**
+
+| Feature | Has value | Median [IQR] | By era (2008–10 … 2020–22) |
+|---|--:|--:|---|
+| `age_years` | 100% | 64 [53, 73] | |
+| `weight_kg` | 94.3% | 87 [73, 102.8] kg | 93.9 / 96.2 / 93.2 / 94.2 / 94.2% |
+| `height_cm` | 55.8% | 170.1 [162.8, 177.9] cm | 51.9 / 47.1 / 56.1 / 60.6 / 63.2% |
+| `bmi` | 55.5% | 30.0 [25.7, 35.5] | 51.6 / 46.9 / 55.2 / 60.4 / 62.8% |
+| `sofa_no_cv` | 97.5% | 8 [6, 10] | 97.5 / 98.5 / 97.0 / 96.6 / 98.2% |
+
+| Feature | Value | Stays | Share by era (2008–10 … 2020–22) |
+|---|---|--:|---|
+| `sex` | F | 1,089 | 41.1 / 39.4 / 39.3 / 38.4 / 35.9% |
+| `admission_type` | scheduled | — | 7.9 / 9.8 / 6.6 / 5.7% / <10 |
+| `service` | medicine | 1,498 | 53.7 / 42.4 / 51.6 / 57.7 / 60.1% |
+| | cardiac_medicine | 374 | 13.8 / 13.2 / 14.6 / 12.7 / 12.6% |
+| | cardiac_surgery | — | 8.6 / 13.0 / 13.2 / 11.0% / — |
+| | surgery | 640 | 24.0 / 31.3 / 20.6 / 18.7 / 20.6% |
+| | none by CRRT start | <10 | |
+| `sepsis3` | true | 1,912 | 69.1 / 73.8 / 70.7 / 67.8 / 61.2% |
+
+"—" withholds a cell from which a suppressed one could be recovered:
+the rest of its era, or its value's total minus the other eras
+(`summarize_static` does the same).
+
+**Where it applies.** Plan Parts 6.4, 7 and 9.2. `sql/static_features.sql`,
+`sql/mimic_code/`, `src/crrt/concepts.py`, `src/crrt/build_db.py`.
+`config/config.yaml → features.weight_items`, `height_items`, `lb_per_kg`,
+`cm_per_inch`, `cm_per_m`, `admission_type_groups`, `service_groups`,
+`plausibility_bounds` (the 5 items), `itemid_inventory.label_patterns`.
+Columns are defined in `docs/data_dictionary.md`, "`static_features`" and
+"`mimiciv_derived` and its source views".
+
 ## 2026-10-04 — Hemodynamic features
 
 **Decision.** `sql/hemodynamic_features.sql` builds the hemodynamics
