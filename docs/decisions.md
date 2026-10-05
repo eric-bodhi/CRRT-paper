@@ -2,6 +2,112 @@
 
 Every judgment call, with its date (plan Part 14). Newest first.
 
+## 2026-10-04 — Access features
+
+**Decision.** `sql/access_features.sql` builds the vascular access feature
+group (Part 7, sixth bullet) as `access_features`, in stage 5 of
+`run_all.sh`. It has one row per `circuit_failure_labels` row, the same grid
+as `machine_features`, and 6 columns: the dialysis catheter's type
+(tunneled or temporary), its age in whole days, and for each the hours
+since it was last charted.
+
+| Signal | Source | itemid |
+|---|---|---|
+| `catheter_type` | `chartevents`, Text | 227124 and 229536 Dialysis Catheter Type, the older and newer vocabularies |
+| `catheter_age_days` | `datetimeevents`, a date | 225322 Dialysis Catheter Insertion Date |
+
+**Site and side are left out.** Part 7 asks for them "if documentable". The
+only source is the `location` field of 224270 Dialysis Catheter in
+`procedureevents`: 224135 Dialysis Access Site has no rows, and lock volume
+does not separate sites (2026-10-02, "Itemid review"). The site is not
+documented at *t*:
+
+- A 224270 row is stored when the catheter comes out. Its `storetime` is
+  0.00 / 0.01 / 3.4 h after `endtime` (p5 / p50 / p95, included stays).
+  Under the `storetime` rule (Part 6.4), the whole row is hidden until
+  removal.
+- That `storetime` is the row's last edit, not its first. The catheter was
+  on the flowsheet from insertion: 97.6% of 224270 catheters in for at
+  least 12 h have line charting during their life, stored before the 224270
+  row (225322 insertion date, catheter type, site appearance, dressing). So
+  the insertion was known in time. The site was not. It is filled in with
+  the removal:
+
+  | How the 224270 row ends | Catheters | `location` filled |
+  |---|--:|--:|
+  | Removed inside the stay | 1,282 | 92.2% |
+  | Still in at ICU discharge (`endtime` within 2 h of `outtime`) | 1,489 | 3.7% |
+  | Still in at death (`endtime` within 2 h of `deathtime`) | 322 | 8.7% |
+
+  It is filled for 94.6% of catheters with a 225740 Dialysis Catheter
+  Discontinued charted within 6 h of the end, and for 30.2% without one.
+  Read at *t*, a known site says how the catheter will leave. Among scored
+  rows before 2020 with a 224270 catheter in place, the site is known in
+  8.0% of rows of circuits that end in death, in none of those that end at
+  ICU discharge (23 circuits), and in 38.6–60.1% of the rest.
+- It also drifts with the era. A 224270 catheter is in place at 86.5–91.0%
+  of scored rows by era before 2020 and at 44.8% in 2020–22. The site is
+  known at 38.4–43.7% and 15.9%.
+
+224270 goes from include to exclude in `config/itemid_review.yaml`. Its
+`starttime` is not used either: 225322 gives the catheter's age in every
+era, and 224270's in-place window would need its `endtime`.
+
+A site source that would hold up is the radiology report of the chest film
+after placement (MIMIC-IV-Note), timed at the report. It is not built: it
+needs the note module and a text rule run locally (2026-10-02, "Aggregate
+results are exempt"). That decision is the authors'.
+
+**The judgment calls.**
+
+- **Type is tunneled or temporary** (`features.access_catheter_types`). The
+  two vocabularies name three values each. Their third lumen ("Temporary
+  with non-dialysis port (VIP)", "Temporary 3-Lumen") is an infusion port
+  that carries no blood for the circuit, so it is not a class. The
+  tunneled share by era is in the coverage table below. Both classes are
+  charted during one 224270 catheter's life for 192 of 2,986 catheters
+  (6.4%). The latest charting wins, as everywhere else. All 140,338 rows
+  carry one of the six listed values. A value not listed would be skipped.
+- **Age is in whole days**: the date of `pred_time` minus the insertion
+  date. 225322 is a date. 5,160 of 130,723 values carry a time, which is
+  ignored. Hours would claim a precision the item does not have. Where
+  both document a catheter, the insertion date matches 224270's
+  `starttime` to the day for 81.2% of catheters (2,368 of 2,918), and is
+  within a day for 85.3%. 213 of 107,464 insertion dates in included stays
+  are later than the date they were charted on. They are skipped. There is
+  no upper bound: a tunneled catheter can be years old. Among scored rows
+  with a tunneled type, age is 1 / 10 / 370 days (p5 / p50 / p95); with a
+  temporary type, 1 / 4 / 18.
+- **The stay, not a lookback.** Both items describe the catheter, not the
+  filter, and are charted about once a shift: the last charting is a median
+  3.5 h before *t* (p95 15 h). A value counts from anywhere earlier in the
+  same stay, and `_hours_since_last` carries its age, as in the other
+  groups. A new catheter's type and date replace the old one's at their
+  first charting. No new threshold is needed.
+
+**What this costs.** The group says nothing about site, which Part 7 calls a
+known driver of filter life. The paper must state that MIMIC-IV does not
+document site in real time, with the table above as the reason.
+
+**Coverage, scored circuit-failure rows.**
+
+| Era | Scored rows | Has type | Tunneled (of typed) | Has age | Median age, days |
+|---|--:|--:|--:|--:|--:|
+| 2008–2010 | 74,057 | 92.5% | 12.3% | 90.4% | 4 |
+| 2011–2013 | 48,964 | 94.5% | 8.3% | 93.4% | 3 |
+| 2014–2016 | 55,084 | 95.9% | 16.4% | 90.9% | 4 |
+| 2017–2019 | 69,048 | 97.5% | 13.8% | 90.9% | 4 |
+| 2020–2022 | 69,875 | 97.8% | 6.8% | 92.6% | 5 |
+| All | 317,028 | 95.7% | 11.5% | 91.5% | 4 |
+
+Neither is known at 2.9% of scored rows. Coverage does not drift with the
+era. The tunneled share moves between eras without a trend.
+
+**Where it applies.** Plan Parts 6.4 and 7. `sql/access_features.sql`.
+`config/config.yaml → features.access_catheter_types`,
+`access_insertion_date_itemid`. `config/itemid_review.yaml` (224270).
+Columns are defined in `docs/data_dictionary.md`, "`access_features`".
+
 ## 2026-10-04 — Laboratory features
 
 **Decision.** `sql/lab_features.sql` builds the coagulation/hematology and

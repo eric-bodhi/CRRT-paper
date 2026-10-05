@@ -1,12 +1,13 @@
 """Build the feature tables (Part 7).
 
-So far four groups in three tables, each one row per prediction row of
+So far five groups in four tables, each one row per prediction row of
 `circuit_failure_labels` (the same grid as `hypophos_labels`), from data
 available at the prediction time: the machine/circuit group
 (`machine_features`, rules in `sql/machine_features.sql`), the
 anticoagulation group (`anticoag_features`, rules in
-`sql/anticoag_features.sql`), and the coagulation/hematology and chemistry
-groups (`lab_features`, rules in `sql/lab_features.sql`).
+`sql/anticoag_features.sql`), the coagulation/hematology and chemistry
+groups (`lab_features`, rules in `sql/lab_features.sql`), and the vascular
+access group (`access_features`, rules in `sql/access_features.sql`).
 
 This module binds the SQL's parameters from config/config.yaml and prints
 an aggregate summary, with every count under
@@ -27,6 +28,7 @@ from crrt.report import count
 MACHINE_FEATURES_SQL = config.REPO_ROOT / "sql" / "machine_features.sql"
 ANTICOAG_FEATURES_SQL = config.REPO_ROOT / "sql" / "anticoag_features.sql"
 LAB_FEATURES_SQL = config.REPO_ROOT / "sql" / "lab_features.sql"
+ACCESS_FEATURES_SQL = config.REPO_ROOT / "sql" / "access_features.sql"
 
 
 def bind_machine_features(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
@@ -101,6 +103,23 @@ def bind_lab_features(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> No
 def build_lab_features(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
     bind_lab_features(con, cfg)
     con.execute(LAB_FEATURES_SQL.read_text())
+
+
+def bind_access_features(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
+    """Set every DuckDB variable that sql/access_features.sql reads."""
+    f = cfg["features"]
+    types = f["access_catheter_types"]
+    _set(con, {
+        "catheter_types": [{"itemid": itemid, "value": value, "type": t}
+                           for itemid, values in types.items() for value, t in values.items()],
+        "catheter_type_itemids": list(types),
+        "insertion_date_itemid": f["access_insertion_date_itemid"],
+    })
+
+
+def build_access_features(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
+    bind_access_features(con, cfg)
+    con.execute(ACCESS_FEATURES_SQL.read_text())
 
 
 def summarize(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
@@ -215,6 +234,34 @@ def summarize_labs(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
     print()
 
 
+def summarize_access(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
+    """Coverage of each signal, and the tunneled share and catheter age, by
+    era among scored circuit-failure rows: by era, to show that neither
+    drifts with it as 224270, the site item left out, did (decisions.md,
+    2026-10-04, "Access features")."""
+    small = cfg["reporting"]["small_cell_threshold"]
+    columns = [d[0] for d in con.execute("SELECT * FROM access_features LIMIT 0").description]
+    scored = ("FROM access_features JOIN circuit_failure_labels USING (circuit_id, pred_time) "
+              "JOIN patients USING (subject_id) WHERE scored")
+    print(f"access_features: {len(columns)} columns; "
+          f"{count(con.execute(f'SELECT count(*) {scored}').fetchone()[0], small)} scored rows")
+
+    def share(k: int, n: int) -> str:
+        return f"{k / n:.1%}" if k >= small else count(k, small)
+
+    print(f"\n{'era':14s} {'scored rows':>12s} {'has type':>9s} {'tunneled':>9s} "
+          f"{'has age':>8s} {'median age d':>13s} {'median h since type':>20s}")
+    for era, n, k_type, k_tun, k_age, age, since in con.execute(
+        "SELECT coalesce(anchor_year_group, 'all'), count(*), count(catheter_type_last), "
+        "count(*) FILTER (WHERE catheter_type_last = 'tunneled'), count(catheter_age_days), "
+        f"median(catheter_age_days), median(catheter_type_hours_since_last) {scored} "
+        "GROUP BY ROLLUP (anchor_year_group) ORDER BY anchor_year_group NULLS LAST"
+    ).fetchall():
+        print(f"{era:14s} {count(n, small):>12s} {share(k_type, n):>9s} {share(k_tun, k_type):>9s} "
+              f"{share(k_age, n):>8s} {age:>13.0f} {since:>20.1f}")
+    print()
+
+
 def main() -> None:
     cfg = config.load()
     con = duckdb.connect(str(config.path(cfg, "duckdb")))
@@ -224,6 +271,8 @@ def main() -> None:
     summarize_anticoag(con, cfg)
     build_lab_features(con, cfg)
     summarize_labs(con, cfg)
+    build_access_features(con, cfg)
+    summarize_access(con, cfg)
     con.close()
 
 

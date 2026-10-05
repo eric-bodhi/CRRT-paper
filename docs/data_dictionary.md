@@ -510,6 +510,47 @@ Part 7 also lists D-dimer. It is left out (51196, 50915); see the decision.
 | `<l>_delta` | signal unit | `<l>_last` − the value at the `charttime` before it among results that count at `pred_time`. A result drawn earlier but not yet stored is skipped. Null if fewer than two results count. |
 | `<l>_delta_hours` | hours | The `charttime` of `<l>_last` − the `charttime` of the previous result. Null with `<l>_delta`. |
 
+## `access_features`
+
+The vascular access feature group (Part 7, sixth bullet). One row per
+`circuit_failure_labels` row, scored or not: the same grid as
+`machine_features`. Built by `sql/access_features.sql`, run from
+`uv run python -m crrt.features` (stage 5 of `run_all.sh`). Decision:
+`docs/decisions.md` 2026-10-04, "Access features".
+
+**Sources.**
+
+| Signal | Table | itemid | Unit |
+|---|---|---|---|
+| `catheter_type` | `chartevents` | 227124 Dialysis Catheter Type (older vocabulary), 229536 Dialysis Catheter Type (newer), `value` | text |
+| `catheter_age` | `datetimeevents` | 225322 Dialysis Catheter Insertion Date, `value` | days |
+
+Names, itemids and the vocabulary map: `features.access_catheter_types`,
+`features.access_insertion_date_itemid`. Site and side are not features:
+224270 Dialysis Catheter `location` is filled in at removal (see the
+decision).
+
+**Cleaning rules.**
+
+- Both are the stay's, matched on `stay_id`, so a value charted before
+  `circuit_start` counts, however long before. A value counts at *t* only
+  if `charttime ≤ t` and `storetime ≤ t`. The latest `charttime` wins.
+- `catheter_type`: each charted value maps to `tunneled` or `temporary`
+  through `features.access_catheter_types`, under its own itemid. A value
+  not listed there is skipped.
+- `catheter_age`: the value is read as a date (a time on it is dropped). An
+  insertion date later than the date it was charted on is skipped.
+
+**Columns.**
+
+| Column | Type / unit | Definition |
+|---|---|---|
+| `circuit_id`, `pred_time` | | As in `circuit_failure_labels`. |
+| `catheter_type_last` | text | `tunneled` or `temporary`: the harmonised value at the latest `charttime` that counts at `pred_time`. Null if none. |
+| `catheter_type_hours_since_last` | hours | `pred_time` − the `charttime` of `catheter_type_last`. |
+| `catheter_age_days` | days, integer | The date of `pred_time` − the insertion date at the latest `charttime` that counts. 0 on the day of insertion. Null if none. |
+| `catheter_insertion_date_hours_since_last` | hours | `pred_time` − the `charttime` of that insertion date. |
+
 ## Sensitivity analysis schemas
 
 Built by `uv run python -m crrt.sensitivity` (stage 6 of `run_all.sh`).
@@ -526,11 +567,12 @@ rules of the `main` tables of the same name.
 | `unclear_exclude` | `outcomes.circuit_failure.unclear_handling_primary` | `circuit_failure_labels` |
 | `phosphate_below_1_5` | `outcomes.hypophosphatemia.moderate_mg_dl` | `hypophos_labels` |
 | `repletion_<handling>` | `outcomes.hypophosphatemia.repletion_handling_primary` | `hypophos_labels` |
-| `max_downtime_<h>h` | `circuits.max_downtime_hours` | `crrt_circuits` through `lab_features` |
-| `segment_gap_<h>h` | `sessionization.gap_hours` | `crrt_circuits` through `lab_features` |
+| `max_downtime_<h>h` | `circuits.max_downtime_hours` | `crrt_circuits` through `access_features` |
+| `segment_gap_<h>h` | `sessionization.gap_hours` | `crrt_circuits` through `access_features` |
 
 - A label analysis has the primary's grid (checked when it is built), so
-  it joins `main.machine_features`, `main.anticoag_features` and
-  `main.lab_features` on (`circuit_id`, `pred_time`).
+  it joins `main.machine_features`, `main.anticoag_features`,
+  `main.lab_features` and `main.access_features` on (`circuit_id`,
+  `pred_time`).
 - A circuit analysis renumbers `circuit_id`. Join its tables only to tables
   in the same schema.

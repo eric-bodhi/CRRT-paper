@@ -171,6 +171,17 @@ def test_lab_groups_are_bounded_and_named_once(config):
         features["plausibility_bounds"])
 
 
+def test_access_items_are_reviewed_features(config):
+    """The access group reads only items the hand review included as
+    features (Part 2.3). It has no bounds to enforce that, since its items
+    are Text and dates."""
+    reviewed = yaml.safe_load(ITEMID_REVIEW_PATH.read_text())["items"]
+    features = config["features"]
+    for itemid in [*features["access_catheter_types"], features["access_insertion_date_itemid"]]:
+        assert reviewed[itemid]["verdict"] == "include", itemid
+        assert "feature" in reviewed[itemid]["roles"], itemid
+
+
 def test_clipped_pressures_are_bounded(config):
     features = config["features"]
     assert set(features["pressure_clip_itemids"]) <= set(features["plausibility_bounds"])

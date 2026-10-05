@@ -591,6 +591,28 @@ features:                                   # Plan Part 7
   # hypophosphatemia.known_value_max_age_hours.
   lab_lookback_hours: 24
 
+  # The vascular access feature group (Part 7, sixth bullet), built by
+  # sql/access_features.sql. Decided 2026-10-04 (docs/decisions.md, "Access
+  # features"). Text and dates, so no plausibility bounds. Catheter site and
+  # side are left out: the only source, 224270 `location`, is filled in when
+  # the catheter comes out (93% of catheters removed inside the stay, 4% of
+  # those still in at ICU discharge), so it is future information at t.
+  # Dialysis Catheter Type, chartevents Text: {itemid: {value: class}}. The
+  # older (227124) and newer (229536) vocabularies harmonised to tunneled /
+  # temporary. A value not listed is skipped.
+  access_catheter_types:
+    227124:
+      Tunneled (PermaCath): tunneled
+      Temporary (Quinton): temporary
+      Temporary with non-dialysis port (VIP): temporary
+    229536:
+      Tunneled 2-Lumen: tunneled
+      Temporary 2-Lumen: temporary
+      Temporary 3-Lumen: temporary
+  # Dialysis Catheter Insertion Date, datetimeevents, a date. Read for the
+  # catheter's age in whole days.
+  access_insertion_date_itemid: 225322
+
 
 reporting:                                  # Plan Part 1.4
   # Printed counts below this are shown as "<10", in console output and in
