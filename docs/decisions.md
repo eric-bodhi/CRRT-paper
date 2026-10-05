@@ -2,6 +2,159 @@
 
 Every judgment call, with its date (plan Part 14). Newest first.
 
+## 2026-10-04 — Hemodynamic features
+
+**Decision.** `sql/hemodynamic_features.sql` builds the hemodynamics
+feature group (Part 7, fifth bullet) as `hemodynamic_features`, in stage 5
+of `run_all.sh`. It has one row per `circuit_failure_labels` row, the same
+grid as `machine_features`, and 66 columns:
+
+- mean arterial pressure, heart rate and temperature, from `chartevents`,
+  with the machine signals' last value and window statistics;
+- lactate, from `labevents`, with the lab groups' last value and change
+  from the previous result.
+
+| Signal | Items | Unit |
+|---|---|---|
+| `map` | 220052 Arterial Blood Pressure mean, 225312 ART BP Mean, 220181 Non Invasive Blood Pressure mean | mmHg |
+| `heart_rate` | 220045 Heart Rate | bpm |
+| `temperature` | 223762 Temperature Celsius, 223761 Temperature Fahrenheit | °C |
+| `lactate` | 50813 Lactate | mmol/L |
+
+**The norepinephrine-equivalent dose is left out.** Part 7 lists it. It is
+left out for the same two properties of `inputevents` that keep that table
+out of the anticoagulation group (2026-10-04, "Anticoagulation features"):
+
+- **Half the stays of 2020–22, the temporal test era, have no `inputevents`
+  row at all**, of any item. Stays of included circuits without one: 7.6 /
+  9.0 / 10.3 / 6.2 / **53.5%** by era (2008–10 … 2020–22). The gap is in
+  every ICU (39–70% of 2020–22 circuits per ICU). Heart rate is
+  charted at the same density in those stays (1.05 against 1.05 values per
+  circuit hour), so the gap is in the record, not in care. Among circuits
+  with any `inputevents` row, a pressor is recorded in 75–91% per era. So "no pressor recorded" in 2020–22 mostly means "no
+  infusion record". A gate fixes this part: the dose is unknown, not 0,
+  until the stay has an `inputevents` row on record. That leaves the dose
+  known at 91.4 / 91.5 / 90.1 / 94.0 / 47.8% of scored rows by era.
+- **A pressor bag is stored around its end.** Scored rows of covered stays
+  with a pressor segment running at *t* (`starttime ≤ t < endtime`): for
+  49% of those segments (142,117 of 288,325), `storetime > t`. The hidden
+  ones are stored a median 7 min after their end. Most end as
+  `FinishedRunning`, a bag run to the end: running at *t*, 114,108 such
+  segments are hidden and 2,432 visible. `ChangeDose/Rate` segments are mostly stored within
+  minutes of their start. That is why the row-weighted figure (norepinephrine
+  rows stored a median 4 min after start, 80% within 1 h) looks
+  harmless. Visible share of running segments by agent: norepinephrine
+  64%, phenylephrine 56–58%, epinephrine 47%, dopamine 37%, vasopressin
+  28%. Under the `storetime` rule (Part 6.4), the dose reads 0 at 20.9% of
+  covered scored rows while a pressor is running. Rows on a pressor: 47.8%
+  gated, 68.7% ungated. The gated dose measures when the record was
+  written as much as what was given.
+- **Carrying the order forward does not rescue it.** For a hidden segment,
+  the latest stored segment of the same `linkorderid` exists in 41.5% of
+  cases, and its rate is within 5% of the running rate in 6.2% of those.
+  Ignoring `storetime` would read rows that were written after *t*, which is
+  leakage by Part 6.4's rule.
+
+MAP, heart rate and lactate carry part of the signal. A patient on
+pressors is titrated to a target MAP, so MAP alone understates shock.
+**The authors should confirm** that leaving the dose out of the primary is
+acceptable. It joins the `inputevents` sensitivity analysis (2026-10-04)
+instead, under that analysis's rules: eras 2008–10 to 2017–19, `storetime`
+kept. There it is built from this specification:
+
+- mimic-code's `norepinephrine_equivalent_dose` (Goradia 2020; fetched
+  2026-10-04): norepinephrine 221906 ×1, epinephrine 221289 ×1,
+  phenylephrine ×0.1, dopamine 221662 ×0.01 (all mcg/kg/min), vasopressin
+  222315 ×2.5/60 (units/hour). Angiotensin II (229709, 229764; 10 and 35
+  circuits) is left out, as there. 229617 is a bolus with no rate.
+- **Phenylephrine adds 229630 and 229632 to mimic-code's 221749.** They
+  replace it from 2017. 221749 covers 124 of about 410 phenylephrine
+  circuits in 2017–19 and 33 of about 225 in 2020–22. Without them,
+  phenylephrine would vanish in the later eras.
+- No rate inside included circuits is charted in another unit, so
+  mimic-code's unit conversions change nothing. Within an agent, the
+  highest running rate counts, so a bag change does not double count.
+  Same-agent overlaps occur in 173 stays for norepinephrine.
+- Bounds where the tail breaks into single stays: norepinephrine and
+  epinephrine 4, phenylephrine 10, dopamine 25 mcg/kg/min, vasopressin
+  10 units/hour. A segment out of bound makes the dose missing, not 0.
+- The coverage gate above. Only 0.3% of covered scored rows have no
+  `inputevents` activity in the 24 h before *t*, so "an `inputevents` row
+  of the stay is on record" needs no recency condition.
+
+**The judgment calls.**
+
+- **The items are mimic-code's `vitalsign` concept** (fetched 2026-10-04).
+  The sweep (Part 2.3) gained four label patterns: `heart rate`,
+  `blood pressure mean`, `bp mean` and `temperature`. Their 16 candidates
+  were reviewed by hand in `config/itemid_review.yaml`. 226329 pulmonary
+  artery blood temperature is left out, as in mimic-code: 598 circuits,
+  and 39 of them in 2020–22 against 108–161 per earlier era. Lactate has
+  one item in every era, 50813, drawn in 92–96% of circuits per era. The
+  lab groups leave out blood-gas items because mixing them with serum
+  results would need harmonisation. Lactate has nothing to mix with, so
+  that concern does not apply.
+- **Vitals are the stay's, not the circuit's.** They count from before
+  `circuit_start`, back to the longest window, like the labs. A machine
+  value from the previous filter describes that filter, but blood pressure
+  describes the patient.
+- **Several items make one signal and are averaged at a charttime**, as in
+  mimic-code: arterial and non-invasive mean pressure, and °C and °F
+  temperature (699 charttimes have both). The average is available at the
+  later `storetime`, the labs' rule. Vitals are stored a median 14–19 min
+  after charttime, and 12–17% more than an hour after.
+- **Bounds are physiologic, not the edge of the data.** Unlike analyser
+  results, vitals have artefact modes that sit inside mimic-code's 0–300
+  bounds. Arterial mean pressure has a spike at 0–5 mmHg (line zeroing)
+  and a plateau at 220–360 (flush pressure) that non-invasive pressure
+  does not have. Temperature items hold unit swaps (Celsius values in the
+  °F item, °F values in the °C item) and lost decimal points (971 for 97.1).
+  These are left missing, as mimic-code leaves them, rather than repaired.
+  Rows the features can read, `circuit_start` − 12 h to `circuit_end`, of
+  included circuits:
+
+  | itemid | Item, unit | Bound | Rows | Below (circuits) | Above (circuits) |
+  |---|---|---|--:|--:|--:|
+  | 220052 | Arterial BP mean, mmHg | 20 to 200 | 361,015 | 487 (331) | 701 (561) |
+  | 225312 | ART BP Mean, mmHg | 20 to 200 | 66,528 | 122 (96) | 176 (142) |
+  | 220181 | Non-invasive BP mean, mmHg | 20 to 200 | 89,544 | 12 (11) | 24 (20) |
+  | 220045 | Heart Rate, bpm | 20 to 220 | 474,164 | 58 (32) | 14 (13) |
+  | 223762 | Temperature, °C | 28 to 43 | 78,357 | 10 (13) | 68 (37) |
+  | 223761 | Temperature, °F | 82.4 to 109.4 | 101,607 | 126 (87) | 7 (7) |
+  | 50813 | Lactate, mmol/L | 0.3 to 30 | 61,297 | 0 | 0 |
+
+  Lactate is read from `circuit_start` − 24 h. Its bound is the edge of the
+  data (0.3 to 29.1) and cuts nothing. A circuit can count twice in a
+  column when its window overlaps the previous circuit's. All bounds go to
+  the mentor's clinical plausibility review.
+- **Temperature keeps the window statistics.** It is charted about every
+  4 h, so a 3 h window holds a median of one value and the 3 h slope exists
+  in 13.8% of scored rows (12 h: 86.1%). The 2026-10-03 machine decision
+  accepted a half-missing 3 h slope as informative missingness. A third
+  rule just for temperature would be harder to defend than that.
+
+**Coverage, scored circuit-failure rows (317,028).**
+
+| Signal | Has last | Median last | Median hours since | Median n, 3 h | 3 h slope | 12 h slope | Has change |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| `map` | 99.95% | 71 mmHg | 1.0 | 3 | 77.2% | 99.9% | — |
+| `heart_rate` | 99.95% | 89 bpm | 1.0 | 3 | 76.2% | 99.9% | — |
+| `temperature` | 93.5% | 36.6 °C | 2.0 | 1 | 13.8% | 86.1% | — |
+| `lactate` | 86.6% | 1.8 mmol/L | 3.9 | — | — | — | 73.9% |
+
+By era, temperature is present in 95.3 / 90.3 / 90.6 / 91.8 / 97.6% of
+scored rows and lactate in 79.7 / 84.3 / 90.3 / 90.4 / 88.8%. MAP and heart
+rate are at 99.9–100% in every era.
+
+**Where it applies.** Plan Parts 6.4, 7 and 9.2. `sql/hemodynamic_features.sql`.
+`config/config.yaml → features.hemodynamic_signals`, `fahrenheit_itemids`,
+`fahrenheit_freezing_point`, `fahrenheit_per_celsius`, `hemodynamic_labs`,
+`plausibility_bounds` (the 7 items), `itemid_inventory.label_patterns`.
+`config/itemid_review.yaml` (the 16 new candidates). Columns are defined in
+`docs/data_dictionary.md`, "`hemodynamic_features`". Decision
+"`inputevents` anticoagulation sensitivity analysis" (2026-10-04), which
+now also carries the dose.
+
 ## 2026-10-04 — Access features
 
 **Decision.** `sql/access_features.sql` builds the vascular access feature
@@ -683,6 +836,10 @@ outcomes.circuit_failure` adjudication keys and `plausibility_bounds`.
 `BEFORE_OSF_CHECKLIST.md` §5.
 
 ## 2026-10-04 — `inputevents` anticoagulation sensitivity analysis
+
+*Extended the same day by "Hemodynamic features", above: the analysis
+also carries the norepinephrine-equivalent dose, built to the
+specification there.*
 
 **Decision.** Add it. This closes the question "Anticoagulation features"
 left to the authors. One analysis, circuit failure only:

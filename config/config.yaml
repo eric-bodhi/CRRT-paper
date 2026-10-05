@@ -95,6 +95,11 @@ itemid_inventory:
     - bivalirudin
     # Vascular access (Part 7 - a known driver of filter life)
     - lumen
+    # Hemodynamics (Part 7). Added 2026-10-04 with the hemodynamic group.
+    - heart rate
+    - blood pressure mean
+    - bp mean
+    - temperature
     # Clotting and its monitoring. Added 2026-10-02: no earlier pattern
     # matched 220507 Activated Clotting Time.
     - clot
@@ -490,6 +495,22 @@ features:                                   # Plan Part 7
     50912: [0.1, 22]        # Creatinine, mg/dL. None in (22, 32).
     50931: [10, 1300]       # Glucose, mg/dL. None in (6, 10) or (1300, 1600).
     51000: [15, 4000]       # Triglycerides, mg/dL.
+    # The hemodynamics group. Decided 2026-10-04 (docs/decisions.md,
+    # "Hemodynamic features"); to the mentor's plausibility review. Read from
+    # every value the features can see. Vitals are nursing-validated monitor
+    # values with artefact modes that sit inside mimic-code's 0-300 bounds,
+    # so these are physiologic: arterial MAP has a spike at 0-5 (zeroing) and
+    # a plateau at 220-360 (flush), which non-invasive MAP lacks.
+    220052: [20, 200]       # Arterial Blood Pressure mean, mmHg.
+    225312: [20, 200]       # ART BP Mean, mmHg.
+    220181: [20, 200]       # Non Invasive Blood Pressure mean, mmHg.
+    220045: [20, 220]       # Heart Rate, bpm. Sparse single stays above 220.
+    # 28-43 degC in each item's unit. Out of bound in both are unit swaps
+    # (37 in the degF item, 98 in the degC item) and lost decimal points
+    # (971), left missing as mimic-code does, not repaired.
+    223762: [28, 43]        # Temperature Celsius.
+    223761: [82.4, 109.4]   # Temperature Fahrenheit.
+    50813: [0.3, 30]        # Lactate, blood gas, mmol/L. The edge of the data.
 
   # Raw circuit pressures only: a value past a bound by at most this much is
   # the sensor at its limit, charted as a round number (filter pressure 500
@@ -612,6 +633,33 @@ features:                                   # Plan Part 7
   # Dialysis Catheter Insertion Date, datetimeevents, a date. Read for the
   # catheter's age in whole days.
   access_insertion_date_itemid: 225322
+
+  # The hemodynamics feature group (Part 7, fifth bullet), built by
+  # sql/hemodynamic_features.sql. Decided 2026-10-04 (docs/decisions.md,
+  # "Hemodynamic features"). Every itemid needs an entry in
+  # plausibility_bounds.
+  # Vitals: signal name: chartevents itemids, mimic-code's vitalsign
+  # concept (fetched 2026-10-04). Values of one signal at one charttime are
+  # averaged, as there. The machine signals' window statistics, but the
+  # stay's values, not only the circuit's. 226329 Blood Temperature CCO
+  # (pulmonary artery catheter) is left out, as in mimic-code.
+  hemodynamic_signals:
+    map: [220052, 225312, 220181]   # mmHg: arterial, ART BP, non-invasive
+    heart_rate: [220045]            # bpm
+    temperature: [223762, 223761]   # degC; 223761 is charted in degF
+  # Put in degC before averaging: (value - freezing point) / degF per degC.
+  fahrenheit_itemids: [223761]
+  fahrenheit_freezing_point: 32
+  fahrenheit_per_celsius: 1.8
+  # The norepinephrine-equivalent dose (Part 7) is left out, as the
+  # anticoagulation group leaves out inputevents: in 2020-22 half the stays
+  # have no inputevents row at all, and a pressor bag is stored around its
+  # end, so 49% of running pressor segments are invisible at t. It joins
+  # the inputevents sensitivity analysis instead.
+  # Signal name: hosp.labevents itemid, read under lab_lookback_hours with
+  # the lab groups' columns. 50813 is the only lactate item in any era.
+  hemodynamic_labs:
+    lactate: 50813          # Lactate, blood gas, mmol/L
 
 
 reporting:                                  # Plan Part 1.4

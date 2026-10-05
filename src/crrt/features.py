@@ -1,13 +1,15 @@
 """Build the feature tables (Part 7).
 
-So far five groups in four tables, each one row per prediction row of
+So far six groups in five tables, each one row per prediction row of
 `circuit_failure_labels` (the same grid as `hypophos_labels`), from data
 available at the prediction time: the machine/circuit group
 (`machine_features`, rules in `sql/machine_features.sql`), the
 anticoagulation group (`anticoag_features`, rules in
 `sql/anticoag_features.sql`), the coagulation/hematology and chemistry
-groups (`lab_features`, rules in `sql/lab_features.sql`), and the vascular
-access group (`access_features`, rules in `sql/access_features.sql`).
+groups (`lab_features`, rules in `sql/lab_features.sql`), the vascular
+access group (`access_features`, rules in `sql/access_features.sql`), and
+the hemodynamics group (`hemodynamic_features`, rules in
+`sql/hemodynamic_features.sql`).
 
 This module binds the SQL's parameters from config/config.yaml and prints
 an aggregate summary, with every count under
@@ -29,6 +31,7 @@ MACHINE_FEATURES_SQL = config.REPO_ROOT / "sql" / "machine_features.sql"
 ANTICOAG_FEATURES_SQL = config.REPO_ROOT / "sql" / "anticoag_features.sql"
 LAB_FEATURES_SQL = config.REPO_ROOT / "sql" / "lab_features.sql"
 ACCESS_FEATURES_SQL = config.REPO_ROOT / "sql" / "access_features.sql"
+HEMODYNAMIC_FEATURES_SQL = config.REPO_ROOT / "sql" / "hemodynamic_features.sql"
 
 
 def bind_machine_features(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
@@ -120,6 +123,38 @@ def bind_access_features(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) ->
 def build_access_features(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
     bind_access_features(con, cfg)
     con.execute(ACCESS_FEATURES_SQL.read_text())
+
+
+def bind_hemodynamic_features(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
+    """Set every DuckDB variable that sql/hemodynamic_features.sql reads."""
+    f = cfg["features"]
+    bounds = f["plausibility_bounds"]
+    fahrenheit = set(f["fahrenheit_itemids"])
+    vitals = [
+        {"name": name, "itemid": itemid,
+         "low": float(bounds[itemid][0]), "high": float(bounds[itemid][1]),
+         "shift": float(f["fahrenheit_freezing_point"] if itemid in fahrenheit else 0),
+         "scale": float(f["fahrenheit_per_celsius"] if itemid in fahrenheit else 1)}
+        for name, itemids in f["hemodynamic_signals"].items() for itemid in itemids
+    ]
+    labs = [{"name": name, "itemid": itemid,
+             "low": float(bounds[itemid][0]), "high": float(bounds[itemid][1])}
+            for name, itemid in f["hemodynamic_labs"].items()]
+    _set(con, {
+        "vital_items": vitals,
+        "vital_itemids": [i["itemid"] for i in vitals],
+        "hemodynamic_labs": labs,
+        "hemodynamic_lab_itemids": [i["itemid"] for i in labs],
+        "lab_lookback": timedelta(hours=f["lab_lookback_hours"]),
+        "windows": [{"hours": h, "span": timedelta(hours=h)} for h in f["window_hours"]],
+        "min_points_for_trend": f["min_points_for_trend"],
+        "step": timedelta(hours=cfg["prediction"]["step_hours"]),
+    })
+
+
+def build_hemodynamic_features(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
+    bind_hemodynamic_features(con, cfg)
+    con.execute(HEMODYNAMIC_FEATURES_SQL.read_text())
 
 
 def summarize(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
@@ -262,6 +297,49 @@ def summarize_access(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> Non
     print()
 
 
+def summarize_hemodynamics(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
+    """Coverage of each signal among scored circuit-failure rows, overall and
+    by era: lactate is drawn more often in later eras (decisions.md,
+    2026-10-04, "Hemodynamic features")."""
+    small = cfg["reporting"]["small_cell_threshold"]
+    windows = cfg["features"]["window_hours"]
+    shortest, longest = min(windows), max(windows)
+    f = cfg["features"]
+    columns = [d[0] for d in con.execute("SELECT * FROM hemodynamic_features LIMIT 0").description]
+    scored = ("FROM hemodynamic_features JOIN circuit_failure_labels USING (circuit_id, pred_time) "
+              "JOIN patients USING (subject_id) WHERE scored")
+    total = con.execute(f"SELECT count(*) {scored}").fetchone()[0]
+    print(f"hemodynamic_features: {len(columns)} columns; {count(total, small)} scored rows")
+
+    def share(k: int, n: int) -> str:
+        return f"{k / n:.1%}" if k >= small else count(k, small)
+
+    eras = [e for (e,) in con.execute(
+        f"SELECT DISTINCT anchor_year_group {scored} ORDER BY 1").fetchall()]
+    print(f"\n{'signal':12s} {'has last':>9s} {'median last':>12s} {'median h since':>15s} "
+          f"{'median n ' + str(shortest) + 'h':>12s} {'slope ' + str(shortest) + 'h':>9s} "
+          f"{'slope ' + str(longest) + 'h':>9s} {'has delta':>10s}  "
+          f"has last by era ({eras[0]} … {eras[-1]})")
+    for s in [*f["hemodynamic_signals"], *f["hemodynamic_labs"]]:
+        k, med, since = con.execute(
+            f"SELECT count({s}_last), median({s}_last), median({s}_hours_since_last) {scored}"
+        ).fetchone()
+        if f"{s}_{shortest}h_n" in columns:
+            n_med, k_short, k_long = con.execute(
+                f"SELECT median({s}_{shortest}h_n), count({s}_{shortest}h_slope), "
+                f"count({s}_{longest}h_slope) {scored}").fetchone()
+            window = f"{n_med:>12.0f} {share(k_short, total):>9s} {share(k_long, total):>9s}"
+        else:
+            window = f"{'—':>12s} {'—':>9s} {'—':>9s}"
+        has_delta = (share(con.execute(f"SELECT count({s}_delta) {scored}").fetchone()[0], total)
+                     if f"{s}_delta" in columns else "—")
+        by_era = dict((e, (k_e, n_e)) for e, k_e, n_e in con.execute(
+            f"SELECT anchor_year_group, count({s}_last), count(*) {scored} GROUP BY 1").fetchall())
+        print(f"{s:12s} {share(k, total):>9s} {med:>12.3g} {since:>15.1f} {window} {has_delta:>10s}  "
+              + " / ".join(share(*by_era[e]) for e in eras))
+    print()
+
+
 def main() -> None:
     cfg = config.load()
     con = duckdb.connect(str(config.path(cfg, "duckdb")))
@@ -273,6 +351,8 @@ def main() -> None:
     summarize_labs(con, cfg)
     build_access_features(con, cfg)
     summarize_access(con, cfg)
+    build_hemodynamic_features(con, cfg)
+    summarize_hemodynamics(con, cfg)
     con.close()
 
 

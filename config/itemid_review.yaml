@@ -118,6 +118,29 @@ items:
   225807: {verdict: exclude, reason: "Peritoneal dialysis."}
 
   # --------------------------------------------------------------------------
+  # chartevents — vital signs, for the hemodynamics group (Part 7). Reviewed
+  # 2026-10-04 (docs/decisions.md, "Hemodynamic features"). Rows and
+  # circuits are inside included circuits. The items kept are mimic-code's
+  # vitalsign concept (fetched 2026-10-04).
+  # --------------------------------------------------------------------------
+  220045: {verdict: include, roles: [feature], reason: "Heart rate, bpm. 407,377 rows in 8,391 circuits, p1–p99 52 to 137. A spike at 0 and sparse single stays above 220 are cut by its bound."}
+  220052: {verdict: include, roles: [feature], reason: "Arterial line mean pressure, mmHg. 314,940 rows in 6,514 circuits, p1–p99 48 to 115. Artefact modes: a spike at 0–5 (zeroing) and a plateau at 220–360 (flush), cut by its bound. Averaged with 225312 and 220181 into map."}
+  225312: {verdict: include, roles: [feature], reason: "Second arterial line mean pressure, mmHg. 57,489 rows in 1,508 circuits, p1–p99 46 to 114, the same artefact modes as 220052. Part of map."}
+  220181: {verdict: include, roles: [feature], reason: "Non-invasive mean pressure, mmHg. 69,827 rows in 3,466 circuits, p1–p99 44 to 115. No flush plateau. Part of map."}
+  223761: {verdict: include, roles: [feature], reason: "Temperature, °F, converted to °C. 87,643 rows in 6,729 circuits, p1–p99 95.0 to 100.4. Out of bound are Celsius values typed in (33–39) and lost decimal points (971 for 97.1)."}
+  223762: {verdict: include, roles: [feature], reason: "Temperature, °C. 70,918 rows in 2,398 circuits, p1–p99 33.7 to 38.2. Out of bound are Fahrenheit values typed in (95–102) and lost decimal points (362)."}
+  220046: {verdict: exclude, reason: "Heart rate alarm threshold: a monitor setting, not the patient."}
+  220047: {verdict: exclude, reason: "Heart rate alarm threshold: a monitor setting, not the patient."}
+  224322: {verdict: exclude, reason: "Intra-aortic balloon pump augmented mean, 96 circuits. A device pressure, not in mimic-code's mean pressure."}
+  226329: {verdict: exclude, reason: "Pulmonary artery catheter blood temperature, 598 circuits, falling to 39 in 2020–22 from 108–161 per era before. Left out of mimic-code's vitalsign concept."}
+  229236: {verdict: exclude, reason: "Cerebral temperature, neuromonitoring, 46 stays in all of MIMIC-IV."}
+  224642: {verdict: exclude, reason: "Temperature site, Text. Where it was measured, not a value."}
+  224027: {verdict: exclude, reason: "Skin temperature, a Text nursing assessment (warm, cool)."}
+  224674: {verdict: exclude, reason: "Toxicology assessment, Text (`temperature` pattern noise)."}
+  227054: {verdict: exclude, reason: "APACHE IV component; under 10 rows."}
+  228242: {verdict: exclude, reason: "No rows. Patient temperature entered with a blood gas."}
+
+  # --------------------------------------------------------------------------
   # chartevents — Labs. Every one of these is excluded for the same reason:
   # it is a copy of a hosp.labevents result. 225677 Phosphorous matches
   # labevents 50970 at the same subject and charttime in 99.6% of rows, and

@@ -11,8 +11,8 @@
 #
 # Implemented so far: database build, the itemid evidence sweep, circuits, the
 # cohort with its STROBE flow, the adjudication sample, the outcome labels, the machine,
-# anticoagulation, coagulation/hematology, chemistry and vascular access
-# features, and the sensitivity analyses.
+# anticoagulation, coagulation/hematology, chemistry, vascular access and
+# hemodynamic features, and the sensitivity analyses.
 
 set -euo pipefail
 
@@ -48,8 +48,9 @@ uv run python -m crrt.outcomes
 
 # 5. Features (Part 7): one row per prediction row, from data stored by the
 #    prediction time -> tables machine_features, anticoag_features,
-#    lab_features (coagulation/hematology and chemistry) and access_features
-#    (vascular access). The other clinical groups to follow.
+#    lab_features (coagulation/hematology and chemistry), access_features
+#    (vascular access) and hemodynamic_features. The other clinical groups
+#    to follow.
 #    Prints aggregate coverage only.
 uv run python -m crrt.features
 

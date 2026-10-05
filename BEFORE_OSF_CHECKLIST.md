@@ -135,8 +135,10 @@ One line each in the registration, so none reads as post hoc. Current
 - [ ] `repletion_handling_sensitivity`
 - [ ] `inputevents` anticoagulation (decision 2026-10-04): circuit
       failure, eras 2008–10 to 2017–19 only, compared with the primary
-      feature set on the same eras and folds. Its config key lands with
-      stage 8, so it is not in the grep below — list it by hand.
+      feature set on the same eras and folds. It also carries the
+      norepinephrine-equivalent dose (decision 2026-10-04, "Hemodynamic
+      features"). Its config key lands with stage 8, so it is not in the
+      grep below — list it by hand.
 - [ ] Re-run the grep before submitting in case keys were added.
 
 ## 8. Documents to attach
