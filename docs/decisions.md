@@ -2,6 +2,150 @@
 
 Every judgment call, with its date (plan Part 14). Newest first.
 
+## 2026-10-07 — Contribution 3 pre-specified
+
+**Decision.** Contribution 3 ("does ML add anything", Parts 3.1 and 8.1) is
+fixed before any model is fit or any comparator is scored. This closes
+`BEFORE_OSF_CHECKLIST.md` §4. The registration copies this entry. New config
+keys: `evaluation.comparators`.
+
+**The confirmatory comparison.**
+
+| | |
+|---|---|
+| Outcome | Circuit failure: primary label (`clotted`), primary horizon (`prediction.horizon_hours`), main analysis. Hypophosphatemia has no comparator and is not part of contribution 3 |
+| Model | Gradient boosting on the full feature set (Part 8.1 step 3), named now so the model cannot be chosen after the results. Penalised logistic regression is compared the same way and reported; it does not decide |
+| Data | Pooled out-of-fold predictions from the outer patient-grouped folds (`validation.outer_folds`). The temporal split (Part 9.2) is reported the same way and does not decide |
+| Rows | Labelled, scored prediction rows (2026-10-03, "Circuit-failure prediction rows"). Censored rows count for no one |
+| Primary metric | **Event-level sensitivity at matched alert volume**, defined below |
+| Test | Paired difference, model minus comparator. Patient-clustered percentile bootstrap, `validation.bootstrap_iterations` resamples, CI at `evaluation.comparators.ci_level` (95%) |
+| Decision | The model beats a comparator when the CI's lower bound is above 0. It beats a comparator only by beating every arm of it: Hu as published, Hu recalibrated, and `Clots Increasing` |
+
+- **Alert.** A row whose score or rule fires. Every flagged row counts,
+  with no refractory period, as in the alert budget
+  (`evaluation.alert_budget_*`).
+- **Matched alert volume.** Within each outer test fold, the model alerts
+  on the *k* highest-scoring rows, where *k* is the number of rows the
+  comparator alerts on in that fold. Ties at the cut are broken at random
+  with `reproducibility.random_seed`. With equal alert counts, more
+  detected events also means fewer false alerts, so one number carries the
+  comparison.
+- **Event-level sensitivity** (Part 10, "event-based, not row-based"). The
+  denominator is the primary-label events with at least one positive row.
+  An event is detected if any of its positive rows alerted. Those rows lie
+  in the horizon before the event and outside blanking, by construction of
+  the label.
+- **Bootstrap.** Patients are resampled with replacement from the pooled
+  out-of-fold rows. Alerts stay as assigned in their fold, and both
+  sensitivities and their difference are recomputed in each resample.
+- **No multiplicity correction.** "Beats both comparators" requires every
+  comparison to succeed (an intersection–union test), so each one runs at
+  the full 5% level.
+- **Failing is a finding (Part 3.1).** If the model does not beat both
+  comparators, the paper says so as its result for contribution 3, naming
+  which arm it failed against. If a CI lies wholly below 0, the paper says
+  the rule beat the model.
+
+**The comparators.** Both are computed from data available at *t*:
+`charttime` ≤ *t*, `storetime` ≤ *t*, inside the current circuit (Part
+6.4).
+
+1. **Hu 2026, as published.** Alert if ΔBFR > 0.075 mmHg/(ml/min) or ΔTFR
+   > 0.115 mmHg/(ml/h) (`evaluation.comparators.hu_2026.published_thresholds`).
+   - BFR and TFR are the derived `pressure_drop_per_blood_flow` and
+     `tmp_per_uf_rate` (2026-10-03, "Machine features"). Hu's Methods give
+     FPD = PFP − RP, TMP = (PFP + RP)/2 − EP, BFR = FPD/Q<sub>b</sub>,
+     TFR = TMP/Q<sub>uf</sub>, and Q<sub>uf</sub> = pre-filter + post-filter
+     replacement + net ultrafiltration. These are our formulas term for
+     term, so the −27 / −16.5 mmHg offset of the charted 229248 / 229247
+     (2026-10-02, "Itemid review") does not enter. That settles the question
+     the machine-features entry left for the comparator stage.
+   - Δ is the latest value at *t* (the `_last` feature) minus the circuit's
+     baseline. Hu's baseline is the mean over the 10 min after the first
+     30 min of stable running on a new filter. Hourly charting holds at most
+     one value in 10 min, so ours is the first value charted at least
+     `baseline_after_minutes` (30) after `circuit_start`. Until its
+     `storetime`, that Δ is missing.
+   - If one Δ is missing, the rule reads the other. If both are missing, it
+     does not fire. A zero `uf_rate` leaves TFR missing, as in the feature.
+2. **Hu 2026, recalibrated to hourly Prismaflex charting.** The same
+   parallel rule with both thresholds refit inside each outer training set.
+   - Each threshold maximises Youden's J of that Δ alone against the row
+     label, over the training rows where that Δ is present. Candidate
+     thresholds are the observed values; a tie goes to the smallest. That
+     is Hu's procedure: one Youden cut-off per parameter, modes pooled.
+   - With two numbers and no tuning there is no inner loop. Each fold's
+     thresholds are reported.
+3. **`Clots Increasing`.** Alert at *t* once a 224146 `Clots Increasing`
+   entry has been charted on the current circuit, and from then on until
+   the circuit ends.
+   - An entry inside the previous circuit's `clots_increasing_at_end`
+     window belongs to that circuit, as in `crrt_circuits`, and does not
+     count.
+   - It is undefined in the `event_classes_sensitivity` analysis, where
+     this entry is the event (2026-10-04, "Sensitivity analyses").
+
+**Reported, not deciding.** For every comparator arm and the matched model:
+
+- row-level sensitivity and PPV;
+- false alerts per `alert_budget_hours`;
+- median lead time of detected events, from the first alert among positive
+  rows to `end_time`.
+
+Also reported:
+
+- Hu as published, as row-level sensitivity and specificity, beside Hu's
+  77.1% and 62.9%. This is the external test of the rule.
+- The same comparisons on the temporal split and in every sensitivity
+  analysis where the comparator is defined.
+
+AUPRC, with prevalence, stays the model's headline discrimination metric
+(Part 10), at the alert budget for the operating characteristics. It does
+not decide contribution 3: each comparator is a binary rule with a single
+operating point and has no PR curve.
+
+**Why.**
+
+- **Matched volume, not the alert budget.** Neither rule can be moved to one
+  alert per 12 h. `Clots Increasing` has no threshold, and Hu as published
+  has fixed ones. Moving the model to each rule's volume compares the two
+  at the one operating point where both exist. Choosing *k* reads only the
+  test fold's score distribution, never its labels.
+- **Event-level, not row-level.** Part 10 says row-level metrics overstate
+  usefulness. A nurse acts once per filter: an alert at any hour of the
+  horizon gives the chance to act.
+- **A sticky nurse rule.** It has no window length that could be tuned. It
+  also gives the rule the best sensitivity it can have: feasibility §2.5
+  finds `Clots Increasing` before only 22% of clots, so a short window
+  would turn the comparator into a straw man.
+- **Both Hu arms decide.** Recalibration maximises Youden's J, not
+  sensitivity at matched volume, so it can rank below the published rule on
+  this metric. Requiring both arms closes that route.
+- **Gradient boosting named now.** Picking the best rung of the ladder on
+  outer-fold performance would be selection on the test data.
+
+**For the authors.**
+
+- Under the primary label, the 543 `clots_increasing` circuits
+  (feasibility §2.3) are non-events. Alerts the nurse rule fires on them
+  count as false, though many are probably clots. The sensitivity label
+  counts them, but there the nurse rule is undefined. Say so beside its
+  result.
+- Hu fit their thresholds on clotting circuits only, against clotting 1 h
+  later, with 30-min sampling in the last 4 h. The recalibrated arm refits
+  them on our label (horizon H, every circuit). The paper does not say how
+  the parallel pair (0.075, 0.115) was chosen: Table 2 gives a ΔBFR Youden
+  cut-off of 0.078 in CVVHD.
+- Nothing was computed for this entry: no comparator was scored, and no Δ
+  distribution was looked at (§0).
+- `validation.bootstrap_iterations` is locked by PR #17. Until that merges,
+  this entry depends on a null key.
+
+**Where it applies.** Plan Parts 3.1, 8.1, 9 and 10;
+`config/config.yaml` `evaluation.comparators`; `BEFORE_OSF_CHECKLIST.md`
+§4 and §6. Stage 8 implements the comparators and adds their columns to
+`docs/data_dictionary.md`.
+
 ## 2026-10-05 — Yang 2024 read in full: the framing stands
 
 **Decision.** Yang et al. 2024 (*Intensive Crit Care Nurs* 84:103703, PMID

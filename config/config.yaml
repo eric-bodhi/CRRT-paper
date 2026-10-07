@@ -773,6 +773,31 @@ evaluation:                                 # Plan Part 10
   alert_budget_alerts: 1
   alert_budget_hours: 12
 
+  # Contribution 3 (Parts 3.1, 8.1): does the model beat the two simple rules.
+  # Circuit failure only, primary label and horizon. Decided 2026-10-07
+  # (docs/decisions.md, "Contribution 3 pre-specified").
+  comparators:
+    # Hu et al. 2026 (Sci Rep 16:17411), parallel rule: alert at t if either
+    # signal has risen above its threshold since the circuit's baseline. Hu's
+    # formulas (FPD = PFP - RP, TMP = (PFP + RP)/2 - EP, BFR = FPD/Qb,
+    # TFR = TMP/Quf, Quf = pre + post replacement + net UF) are the derived
+    # machine signals named here, so no offset to the charted 229248 / 229247
+    # applies.
+    hu_2026:
+      published_thresholds:
+        pressure_drop_per_blood_flow: 0.075   # BFR, mmHg/(ml/min)
+        tmp_per_uf_rate: 0.115                # TFR, mmHg/(ml/hr)
+      # Hu's baseline is the mean over the 10 min after the first 30 min of
+      # stable running on a new filter. Hourly charting holds at most one
+      # value in 10 min, so the baseline is the first value charted at least
+      # this long after circuit_start.
+      baseline_after_minutes: 30
+    # The model beats a comparator when the lower bound of this CI on the
+    # paired difference in event-level sensitivity at matched alert volume
+    # (patient-clustered bootstrap, validation.bootstrap_iterations) is
+    # above zero.
+    ci_level: 0.95
+
   # Plan 6.5 negative control: refit the whole pipeline on a shuffled label.
   # If AUROC materially exceeds 0.5 you have leakage. Run every time the
   # pipeline changes.
