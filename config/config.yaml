@@ -265,7 +265,9 @@ prediction:                                 # Plan Part 6
   # or you learn "the alarm that fired two minutes before the nurse changed
   # the filter": prediction of the present, not the future. State this
   # interval prominently in the manuscript; reviewers look for it.
-  # UNLOCKED: the plan specifies 30–60 minutes and does not pick one.
+  # The plan gives 30–60 minutes. 30 is primary, 60 the sensitivity analysis.
+  # Applied at every circuit end, not only at events (2026-10-03). Locked
+  # 2026-10-07 (docs/decisions.md, "Validation and leakage values locked").
   blanking_minutes: 30
   blanking_minutes_sensitivity: [60]
 
@@ -757,13 +759,26 @@ reporting:                                  # Plan Part 1.4
 validation:                                 # Plan Parts 8.2, 9
   # 9.1 grouped k-fold + bootstrap optimism correction; 8.2 nested CV with an
   # outer loop for performance and an inner loop for hyperparameters, grouped
-  # by patient at both levels. The plan mandates the procedures but names no
-  # numbers — fill these in and log the choice.
-  outer_folds: null
-  inner_folds: null
-  bootstrap_iterations: null
+  # by patient at both levels. Locked 2026-10-07 (docs/decisions.md,
+  # "Validation and leakage values locked").
+  # One patient-to-fold map, drawn once with reproducibility.random_seed over
+  # every cohort patient, shared by both outcomes, every model, both
+  # comparators and every sensitivity analysis. About 513 patients and 174
+  # circuit-failure event patients per outer fold.
+  outer_folds: 5
+  # Hyperparameter search only, inside each outer training set and inside the
+  # temporal training eras.
+  inner_folds: 3
+  # Patient-clustered percentile bootstrap for every 95% CI: performance on
+  # pooled out-of-fold and temporal-test predictions, paired differences
+  # against the comparators, and the adjudication kappa. Nested CV is the
+  # internal estimate; there is no separate bootstrap optimism correction.
+  bootstrap_iterations: 2000
   # 9.2 — train on earlier anchor_year_group cohorts, test on later ones.
-  temporal_split_anchor_year_group: null
+  # The first group held out: this group and every later one are the test
+  # set, every earlier one trains. Spelled as in hosp.patients. The group is
+  # the patient's, so the split is patient-disjoint by construction.
+  temporal_split_anchor_year_group: "2020 - 2022"
 
 
 evaluation:                                 # Plan Part 10
@@ -778,5 +793,10 @@ evaluation:                                 # Plan Part 10
   # pipeline changes.
   shuffled_label_control:
     expected_auroc: 0.5
-    # UNLOCKED: the plan says "materially exceeds" and gives no number.
-    auroc_tolerance: null
+    # Labels permuted across labelled rows with reproducibility.random_seed;
+    # the whole nested-CV pipeline refit; AUROC read on the pooled
+    # out-of-fold predictions. Leakage if |AUROC - expected_auroc| exceeds
+    # this. Under the null its SE is at most 0.0045 in any analysis (horizon
+    # 3 h, the fewest events), so 0.02 is over 4 SE. Locked 2026-10-07
+    # (docs/decisions.md, "Validation and leakage values locked").
+    auroc_tolerance: 0.02

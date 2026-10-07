@@ -2,6 +2,133 @@
 
 Every judgment call, with its date (plan Part 14). Newest first.
 
+## 2026-10-07 — Validation and leakage values locked
+
+**Decision.** This closes `BEFORE_OSF_CHECKLIST.md` §3. Every open value in
+`config/config.yaml` is now fixed, and none is marked UNLOCKED or `null`.
+
+| Value | Locked | Config key |
+|---|---|---|
+| Outer folds (performance) | 5 | `validation.outer_folds` |
+| Inner folds (hyperparameters) | 3 | `validation.inner_folds` |
+| Bootstrap replicates for every CI | 2,000 | `validation.bootstrap_iterations` |
+| First held-out era | `2020 - 2022` | `validation.temporal_split_anchor_year_group` |
+| Shuffled-label tripwire | \|AUROC − 0.5\| > 0.02 | `evaluation.shuffled_label_control.auroc_tolerance` |
+| Blanking | 30 min, 60 min sensitivity | `prediction.blanking_minutes` |
+
+Nothing here is computed from a feature–outcome association or a model
+result; none exists yet (§0). The counts below are label counts by era,
+which stage 6 already prints.
+
+**Nested cross-validation (Parts 8.2, 9.1).**
+
+- **One patient-to-fold map**, drawn once with `random_seed` over all
+  2,564 cohort patients. Both outcomes, every model, both comparators and
+  every sensitivity analysis use it.
+  - Paired comparisons against the comparators need the same folds, and so
+    does the `inputevents` analysis (2026-10-04).
+  - The circuit analyses renumber `circuit_id` (2026-10-04, "Sensitivity
+    analyses"), but `subject_id` is stable. A map keyed on the patient
+    survives every schema.
+- **5 outer folds.** Each holds about 513 patients, 174 of them with a
+  circuit-failure event and 243 with a hypophosphatemia event. That is
+  about 1,700 and 5,100 positive rows per fold. Ten folds would halve those
+  counts and double the fitting cost, which is multiplied by the inner
+  loop, the search, both outcomes, more than a dozen sensitivity analyses
+  and a shuffled-label refit of each. The folds are not stratified: with 868
+  event patients, random assignment gives 174 ± 12 per fold.
+- **3 inner folds.** They only choose hyperparameters. Each inner
+  validation fold still holds about 680 patients, about 230 of them with a
+  circuit-failure event. The same 3 folds tune the temporal model inside
+  the training eras.
+
+**Bootstrap: CIs only, no optimism correction.** Part 9.1 says "grouped
+k-fold + bootstrap optimism correction". These are two estimates of the
+same thing, the out-of-sample performance of the whole development
+procedure. Nested CV already gives it with tuning inside the loop. A
+Harrell optimism bootstrap would have to rerun the inner search on every
+replicate and resample patients, not rows.
+
+- The bootstrap is therefore used for the uncertainty only. Patients are
+  resampled with replacement, with all their circuits and rows (Part 4.3).
+  It covers the pooled out-of-fold predictions, the temporal test set, the
+  paired difference against each comparator and the adjudication κ (whose
+  stratified bootstrap, 2026-10-04, will read this key).
+- **2,000 replicates.** The Monte Carlo error of each percentile endpoint
+  is then about 6% of the metric's own standard error. Predictions are
+  fixed, so a replicate only recomputes metrics: the cost is minutes.
+
+**Temporal split (Part 9.2).** Train on 2008–10 to 2017–19 and test on
+2020–22, as feasibility §6 proposal 11 proposed.
+
+- The key names the first held-out group, in the spelling of
+  `hosp.patients` (`2020 - 2022`). That group and every later one test;
+  every earlier one trains.
+- `anchor_year_group` belongs to the patient, so the split is
+  patient-disjoint by construction. Its era counts are therefore smaller
+  than the circuit-date eras of feasibility §1 (2,936 circuits there), which
+  assigned each circuit its own shifted year.
+- The test era is about the size of one outer fold:
+
+| Era | Patients | Circuits | Circuit failure positive / labelled rows | Event circuits (patients) | Hypophosphatemia positive / labelled rows | Event patients |
+|---|--:|--:|--:|--:|--:|--:|
+| 2008–10 | 640 | 1,945 | 1,976 / 71,771 | 371 (217) | 7,121 / 42,944 | 322 |
+| 2011–13 | 438 | 1,303 | 1,082 / 47,552 | 205 (130) | 4,315 / 25,271 | 205 |
+| 2014–16 | 436 | 1,459 | 1,414 / 53,316 | 258 (135) | 4,235 / 28,503 | 200 |
+| 2017–19 | 538 | 1,869 | 2,020 / 66,968 | 372 (190) | 5,708 / 32,532 | 271 |
+| **2020–22 (test)** | **512** | **1,836** | **2,147 / 67,886** | **402 (196)** | **4,324 / 34,424** | **216** |
+
+- Both outcomes clear `cohort.min_events_for_modeling` (100) in the test
+  era on event patients alone.
+- One held-out era, not two. Holding out 2017–22 would leave 1,514
+  training patients, most of them from before TMP was charted (complete
+  only from 2017–19). The test-era drift is already logged: Phoxillum,
+  missing `inputevents` for half the stays, more oral repletion, the
+  catheter-type gap and triglyceride draws.
+
+**Shuffled-label control (Part 6.5).**
+
+- **The procedure, which the number only means something with.** Labels
+  are permuted across the labelled rows of the analysis with `random_seed`.
+  The whole pipeline is refit on the same folds: imputation, scaling, class
+  weights, calibration, inner search. AUROC is read on the pooled
+  out-of-fold predictions against the permuted labels. Run once per
+  analysis schema and per outcome, every time the pipeline changes
+  (2026-10-04).
+- **Tolerance 0.02, two-sided.** Under the permutation null the AUROC's
+  standard error depends only on the positive and negative row counts. It
+  is 0.0032 for the circuit-failure primary, 0.0020 for hypophosphatemia,
+  and at most 0.0045 in any analysis in the 2026-10-04 table (horizon 3 h,
+  4,188 events). The two row-filter analyses, chronic dialysis excluded and
+  the `inputevents` eras, keep about 6,500 events and sit near 0.0036. So
+  0.02 is at least 4.4 SE: a trip is leakage, not chance.
+- A tighter value, 0.01, is only 2.2 SE at horizon 3 h and would trip by
+  chance in about 3 of 100 refits. A looser one would let through an
+  inflation the size of a plausible model-versus-comparator difference.
+- An AUROC below 0.48 also trips it. That is not leakage in the usual
+  sense, but something systematic links the predictions to the permuted
+  labels and has to be explained before any real fit.
+
+**Blanking (Part 6.2).** 30 min stays primary and 60 min stays the
+sensitivity analysis; only the UNLOCKED marker is removed.
+
+- The main path to "predicting the present" is already closed elsewhere: a
+  circuit ends at the earlier of its last machine charting and the System
+  Integrity entry that documents its class (2026-10-03). A clot charted
+  hours before the machine stops is therefore not inside the window.
+- Charting is hourly, so 30 and 60 min differ by about one scored row per
+  circuit end. The 60 min analysis costs 1,043 positive rows (7,596 against
+  8,639) and is reported by name (§7).
+
+**For the authors to confirm.** Dropping the bootstrap optimism correction
+in favour of nested CV, which departs from the wording of Part 9.1; the
+unstratified patient folds; the two-sided tolerance.
+
+**Where it applies.** Plan Parts 6.2, 6.5, 8.2, 9.1, 9.2 and 12.
+`config/config.yaml → validation`, `evaluation.shuffled_label_control`,
+`prediction.blanking_minutes`. `BEFORE_OSF_CHECKLIST.md` §3. Stage 7 of
+`run_all.sh`, when it is built, reads every key here.
+
 ## 2026-10-05 — Yang 2024 read in full: the framing stands
 
 **Decision.** Yang et al. 2024 (*Intensive Crit Care Nurs* 84:103703, PMID
