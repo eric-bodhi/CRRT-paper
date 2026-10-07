@@ -658,6 +658,54 @@ looser rule could not rely on one.
 | `sofa_no_cv` | points, 0–20 | SOFA without its cardiovascular score: the sum of the respiration, coagulation, liver, CNS and renal 24 h scores of the stay's last `mimiciv_derived.sofa` hour with `endtime` ≤ CRRT start. Null if the stay has no such hour (CRRT charted before the stay's first heart rate, where mimic-code's hourly grid starts). |
 | `sepsis3` | boolean | The stay's `mimiciv_derived.sepsis3` row has `antibiotic_time`, `culture_time` and `sofa_time` all ≤ CRRT start: infection suspected and SOFA ≥ 2 by then. False otherwise, including stays with no row. |
 
+## `missingness_features`
+
+The missingness group (Part 7, ninth bullet): whether, and how often, each
+signal was measured. One row per `circuit_failure_labels` row, scored or
+not: the same grid as `machine_features`. Built by
+`sql/missingness_features.sql`, run from `uv run python -m crrt.features`
+(stage 5 of `run_all.sh`) after the five tables it reads. Decision:
+`docs/decisions.md` 2026-10-07, "Missingness features".
+
+**Sources.** The flags are read from the built `machine_features`,
+`anticoag_features`, `lab_features`, `access_features` and
+`hemodynamic_features`. The draw counts are read from `labevents`, for every
+item of `features.lab_groups`, `features.calcium_labs` and
+`features.hemodynamic_labs` (itemids as in `lab_features`,
+`anticoag_features` and `hemodynamic_features`).
+
+**Cleaning rules.**
+
+- A flag adds no rule of its own: it is true when its group has a value at
+  *t*, under that group's window, lookback, `storetime` and bound rules.
+- A draw counts under `lab_features`' rules: the patient's results, matched
+  on `subject_id`, counting if `charttime ≤ t`, `storetime ≤ t`,
+  `charttime ≥ t −` `features.lab_lookback_hours`, and inside the item's
+  plausibility bound. Results of one item at one `charttime` are one draw,
+  available at the latest `storetime`. So a count is the number of results
+  `<l>_last` chose from.
+
+**Columns.** `<s>` is every signal with a `<s>_hours_since_last` column in
+the five tables above (42: 17 machine, 5 anticoagulation, 14 laboratory, 2
+access, 4 hemodynamic); `<l>` every lab item above (17); `<lb>` is
+`features.lab_lookback_hours`.
+
+| Column | Type / unit | Definition |
+|---|---|---|
+| `circuit_id`, `pred_time` | | As in `circuit_failure_labels`. |
+| `<s>_measured` | boolean | `<s>_hours_since_last` is not null: the signal has a value at `pred_time`. Never null. |
+| `<l>_<lb>h_n` | count | Draws of `<l>` in [`pred_time` − `<lb>` h, `pred_time`]. 0, never null, if none; 0 exactly when `<l>_measured` is false. |
+
+`crrt_mode_last` and `anticoag_class` have no flag: they are text, and null
+is a category of the column itself. `calcium_ratio` has a flag but no
+count: it is a pairing of two draws, both counted. The static group has no
+flags (see the decision).
+
+**The group in an ablation.** The group is this table plus every column
+elsewhere that describes when or how often a signal was measured, not what
+it was: `*_hours_since_last`, `*_<w>h_n` and `*_delta_hours`. Those stay in
+their own tables and are selected by suffix.
+
 ## `mimiciv_derived` and its source views
 
 Built by `uv run python -m crrt.concepts` (stage 0b of `run_all.sh`). Read
@@ -702,13 +750,13 @@ rules of the `main` tables of the same name.
 | `unclear_exclude` | `outcomes.circuit_failure.unclear_handling_primary` | `circuit_failure_labels` |
 | `phosphate_below_1_5` | `outcomes.hypophosphatemia.moderate_mg_dl` | `hypophos_labels` |
 | `repletion_<handling>` | `outcomes.hypophosphatemia.repletion_handling_primary` | `hypophos_labels` |
-| `max_downtime_<h>h` | `circuits.max_downtime_hours` | `crrt_circuits` through `static_features` |
-| `segment_gap_<h>h` | `sessionization.gap_hours` | `crrt_circuits` through `static_features` |
+| `max_downtime_<h>h` | `circuits.max_downtime_hours` | `crrt_circuits` through `missingness_features` |
+| `segment_gap_<h>h` | `sessionization.gap_hours` | `crrt_circuits` through `missingness_features` |
 
 - A label analysis has the primary's grid (checked when it is built), so
   it joins `main.machine_features`, `main.anticoag_features`,
-  `main.lab_features`, `main.access_features` and
-  `main.hemodynamic_features` on (`circuit_id`,
-  `pred_time`), and `main.static_features` on `circuit_id`.
+  `main.lab_features`, `main.access_features`,
+  `main.hemodynamic_features` and `main.missingness_features` on
+  (`circuit_id`, `pred_time`), and `main.static_features` on `circuit_id`.
 - A circuit analysis renumbers `circuit_id`. Join its tables only to tables
   in the same schema.

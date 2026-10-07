@@ -2,6 +2,102 @@
 
 Every judgment call, with its date (plan Part 14). Newest first.
 
+## 2026-10-07 — Missingness features
+
+**Decision.** `sql/missingness_features.sql` builds the missingness group
+(Part 7, ninth bullet) as `missingness_features` in stage 5 of
+`run_all.sh`, after the five time-varying groups it reads. It has one row
+per prediction row (364,036) and 61 columns: 42 presence flags and 17 draw
+counts. No config key is added.
+
+Part 7 asks for "measurement-presence flags and time-since-last-
+measurement". Time since last already exists: every time-varying group
+writes `<s>_hours_since_last` for each signal. So this group adds two
+things.
+
+1. **`<s>_measured`, one per `<s>_hours_since_last` column**, true when
+   that column is not null. That is when the group has a value at *t*,
+   under the group's own window, lookback, `storetime` and bound rules.
+   - On the built tables, `<s>_last` and `<s>_hours_since_last` are null on
+     exactly the same rows for all 42 signals, so the flag has one meaning.
+   - A gradient-boosting model reads the null directly, so there the flag
+     is redundant. The penalized logistic regression (Part 8.1, rung 2)
+     cannot: once a value is imputed inside the fold, the flag is the only
+     trace that it was missing.
+   - The flags are read from the built tables, not re-derived, so they
+     follow those tables if their rules change.
+2. **`<l>_24h_n`, draws of each lab in the lab lookback.** The 14 lab-group
+   labs, the two calcium labs and lactate. Machine signals and vitals
+   already have `<s>_<w>h_n`. The labs had nothing that says how often they
+   are drawn, and that is the clinician-suspicion signal Part 7 warns
+   about.
+   - Counted over `features.lab_lookback_hours`, the window `<l>_last`
+     already reads, under the same rules. So a count is the number of
+     results `<l>_last` chose from, and it is 0 exactly when the flag is
+     false. That holds on every row of the built table.
+   - Out-of-bound results are not draws. A post-filter ionized calcium
+     below 0.6 mmol/L (decision 2026-10-04, "Anticoagulation features") is
+     a circuit sample, not the patient's, and stays out of the count too.
+
+**Left without a flag.**
+- `crrt_mode_last` and `anticoag_class` are text; null is a category of the
+  column itself.
+- `calcium_ratio` has a flag but no count: it pairs two draws, and both are
+  counted.
+- The static group. A missing height is a documentation gap at admission,
+  not a measurement decision during the circuit. If stage 8 imputes a
+  static column, its indicator comes with the imputer, inside the fold.
+
+**The group in an ablation (Part 11).** The missingness group is this table
+plus every column elsewhere that describes when or how often a signal was
+measured rather than what it was: `*_hours_since_last`, `*_<w>h_n` and
+`*_delta_hours`. Those columns stay in their own tables, because moving
+them would rewrite four merged groups. The model stage selects them by
+suffix. An ablation that drops this group therefore drops them too.
+Otherwise the "physiology only" model would still see every null.
+
+**For the authors to confirm.** Counting the time columns of other groups
+as part of this group in the ablation; leaving the static group without
+flags.
+
+**Draws in 24 h, scored circuit-failure rows (317,028).**
+
+| Lab | Drawn | Median | p90 | 2+ draws | Mean by era (2008–10 … 2020–22) |
+|---|--:|--:|--:|--:|---|
+| platelets | 98.2% | 2 | 4 | 65.5% | 2.10 / 2.21 / 2.33 / 2.57 / 2.22 |
+| inr | 89.3% | 1 | 3 | 43.7% | 1.65 / 1.73 / 1.74 / 1.90 / 1.53 |
+| ptt | 89.8% | 2 | 4 | 51.9% | 1.91 / 1.97 / 1.99 / 2.19 / 1.81 |
+| fibrinogen | 28.9% | 0 | 2 | 13.2% | 0.43 / 0.50 / 0.58 / 0.79 / 0.62 |
+| hemoglobin | 98.3% | 2 | 4 | 65.9% | 2.06 / 2.17 / 2.29 / 2.57 / 2.25 |
+| hematocrit | 98.5% | 2 | 4 | 69.7% | 2.30 / 2.42 / 2.48 / 2.67 / 2.29 |
+| phosphate | 99.3% | 3 | 4 | 91.3% | 2.70 / 2.72 / 2.74 / 2.87 / 2.73 |
+| potassium | 99.2% | 3 | 4 | 93.3% | 3.25 / 3.20 / 3.16 / 3.26 / 3.11 |
+| magnesium | 99.4% | 3 | 4 | 92.4% | 2.76 / 2.79 / 2.81 / 2.93 / 2.76 |
+| bicarbonate | 99.4% | 3 | 4 | 94.0% | 3.18 / 3.11 / 3.08 / 3.22 / 3.07 |
+| bun | 99.3% | 3 | 4 | 92.1% | 2.76 / 2.75 / 2.73 / 2.89 / 2.73 |
+| creatinine | 99.4% | 3 | 4 | 92.1% | 2.75 / 2.74 / 2.74 / 2.88 / 2.73 |
+| glucose | 98.9% | 3 | 4 | 90.8% | 3.11 / 3.04 / 3.01 / 3.14 / 3.03 |
+| triglycerides | 11.0% | 0 | 1 | 0.7% | 0.08 / 0.07 / 0.08 / 0.13 / 0.21 |
+| ionized_calcium | 99.6% | 4 | 5 | 98.1% | 4.22 / 4.35 / 4.33 / 4.20 / 4.02 |
+| total_calcium | 99.2% | 3 | 4 | 90.7% | 2.69 / 2.71 / 2.75 / 2.87 / 2.72 |
+| lactate | 86.6% | 3 | 6 | 73.9% | 2.73 / 3.05 / 3.52 / 3.53 / 3.14 |
+
+"Drawn" and "2+ draws" reproduce the lab and hemodynamic groups' "has
+last" and "has change" (lactate: 86.6% and 73.9% there too).
+
+- **Most labs are drawn at a steady rate in every era**, so their counts
+  carry little era signal. The chemistry panel is drawn about three times a
+  day, ionized calcium about four.
+- **Fibrinogen, triglycerides and lactate drift.** Fibrinogen nearly
+  doubles from 2008–10 to 2017–19, triglycerides almost triple by 2020–22,
+  and lactate rises by 29% from 2008–10 to 2014–16. A model that
+  learns "drawn more often" partly learns the era. Temporal validation
+  (Part 9.2) must report it, as for the D-dimer that was left out
+  (2026-10-04, "Laboratory features").
+
+**Where it applies.** Plan Parts 7, 8.1, 9.2 and 11; `BEFORE_OSF_CHECKLIST.md`
+§6 (the group ablation is listed as exploratory there).
+
 ## 2026-10-05 — Yang 2024 read in full: the framing stands
 
 **Decision.** Yang et al. 2024 (*Intensive Crit Care Nurs* 84:103703, PMID
