@@ -1,17 +1,19 @@
 """Build the feature tables (Part 7).
 
-So far seven groups in six tables. Five are one row per prediction row of
+All nine groups, in seven tables. Six are one row per prediction row of
 `circuit_failure_labels` (the same grid as `hypophos_labels`), from data
 available at the prediction time: the machine/circuit group
 (`machine_features`, rules in `sql/machine_features.sql`), the
 anticoagulation group (`anticoag_features`, rules in
 `sql/anticoag_features.sql`), the coagulation/hematology and chemistry
 groups (`lab_features`, rules in `sql/lab_features.sql`), the vascular
-access group (`access_features`, rules in `sql/access_features.sql`), and
-the hemodynamics group (`hemodynamic_features`, rules in
-`sql/hemodynamic_features.sql`). The static group (`static_features`, rules
-in `sql/static_features.sql`) is one row per circuit, from data available
-at CRRT start; it reads the mimic-code concepts built by crrt.concepts.
+access group (`access_features`, rules in `sql/access_features.sql`), the
+hemodynamics group (`hemodynamic_features`, rules in
+`sql/hemodynamic_features.sql`), and the missingness group
+(`missingness_features`, rules in `sql/missingness_features.sql`), which
+reads the five before it. The static group (`static_features`, rules in
+`sql/static_features.sql`) is one row per circuit, from data available at
+CRRT start; it reads the mimic-code concepts built by crrt.concepts.
 
 This module binds the SQL's parameters from config/config.yaml and prints
 an aggregate summary, with every count under
@@ -35,6 +37,7 @@ LAB_FEATURES_SQL = config.REPO_ROOT / "sql" / "lab_features.sql"
 ACCESS_FEATURES_SQL = config.REPO_ROOT / "sql" / "access_features.sql"
 HEMODYNAMIC_FEATURES_SQL = config.REPO_ROOT / "sql" / "hemodynamic_features.sql"
 STATIC_FEATURES_SQL = config.REPO_ROOT / "sql" / "static_features.sql"
+MISSINGNESS_FEATURES_SQL = config.REPO_ROOT / "sql" / "missingness_features.sql"
 
 
 def bind_machine_features(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
@@ -189,6 +192,29 @@ def bind_static_features(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) ->
 def build_static_features(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
     bind_static_features(con, cfg)
     con.execute(STATIC_FEATURES_SQL.read_text())
+
+
+def bind_missingness_features(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
+    """Set every DuckDB variable that sql/missingness_features.sql reads."""
+    f = cfg["features"]
+    bounds = f["plausibility_bounds"]
+    signals = {**{name: itemid for group in f["lab_groups"].values() for name, itemid in group.items()},
+               **f["calcium_labs"], **f["hemodynamic_labs"]}
+    labs = [{"name": name, "itemid": itemid,
+             "low": float(bounds[itemid][0]), "high": float(bounds[itemid][1])}
+            for name, itemid in signals.items()]
+    _set(con, {
+        "labs": labs,
+        "lab_itemids": [i["itemid"] for i in labs],
+        "lab_lookback": timedelta(hours=f["lab_lookback_hours"]),
+        "lab_lookback_hours": f["lab_lookback_hours"],
+    })
+
+
+def build_missingness_features(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
+    """Reads the five time-varying feature tables, so it runs after them."""
+    bind_missingness_features(con, cfg)
+    con.execute(MISSINGNESS_FEATURES_SQL.read_text())
 
 
 def summarize(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
@@ -430,6 +456,44 @@ def summarize_static(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> Non
     print()
 
 
+def summarize_missingness(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
+    """Draws per lab among scored circuit-failure rows, overall and by era:
+    how often a lab is drawn is the clinician-suspicion signal, and for
+    some labs it drifts by era (decisions.md, 2026-10-07, "Missingness
+    features"). The flags repeat each group's "has last", so only their
+    number is printed. Never split by label (BEFORE_OSF_CHECKLIST.md §0)."""
+    small = cfg["reporting"]["small_cell_threshold"]
+    f = cfg["features"]
+    lookback = f["lab_lookback_hours"]
+    columns = [d[0] for d in con.execute("SELECT * FROM missingness_features LIMIT 0").description]
+    scored = ("FROM missingness_features JOIN circuit_failure_labels USING (circuit_id, pred_time) "
+              "JOIN patients USING (subject_id) WHERE scored")
+    total = con.execute(f"SELECT count(*) {scored}").fetchone()[0]
+    print(f"missingness_features: {len(columns)} columns "
+          f"({sum(c.endswith('_measured') for c in columns)} flags, "
+          f"{sum(c.endswith(f'_{lookback}h_n') for c in columns)} draw counts); "
+          f"{count(total, small)} scored rows")
+
+    def share(k: int, n: int) -> str:
+        return f"{k / n:.1%}" if k >= small else count(k, small)
+
+    eras = [e for (e,) in con.execute(
+        f"SELECT DISTINCT anchor_year_group {scored} ORDER BY 1").fetchall()]
+    labs = [*(s for group in f["lab_groups"].values() for s in group),
+            *f["calcium_labs"], *f["hemodynamic_labs"]]
+    print(f"\n{'lab':16s} {'drawn':>7s} {'median n':>9s} {'p90 n':>6s} {'2+ draws':>9s}  "
+          f"mean draws in {lookback} h by era ({eras[0]} … {eras[-1]})")
+    for s in labs:
+        c = f"{s}_{lookback}h_n"
+        k, med, p90, k2 = con.execute(
+            f"SELECT count(*) FILTER (WHERE {c} > 0), median({c}), quantile_disc({c}, 0.9), "
+            f"count(*) FILTER (WHERE {c} >= 2) {scored}").fetchone()
+        by_era = dict(con.execute(f"SELECT anchor_year_group, avg({c}) {scored} GROUP BY 1").fetchall())
+        print(f"{s:16s} {share(k, total):>7s} {med:>9.0f} {p90:>6d} {share(k2, total):>9s}  "
+              + " / ".join(f"{by_era[e]:.2f}" for e in eras))
+    print()
+
+
 def main() -> None:
     cfg = config.load()
     con = duckdb.connect(str(config.path(cfg, "duckdb")))
@@ -445,6 +509,8 @@ def main() -> None:
     summarize_hemodynamics(con, cfg)
     build_static_features(con, cfg)
     summarize_static(con, cfg)
+    build_missingness_features(con, cfg)
+    summarize_missingness(con, cfg)
     con.close()
 
 
