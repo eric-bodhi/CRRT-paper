@@ -59,19 +59,24 @@ Each one gets a dated entry in `docs/decisions.md` (Part 14).
 
 ## 4. Pre-specify contribution 3: "does ML add anything"
 
-This is the claim a reviewer will hold against the registration.
+This is the claim a reviewer will hold against the registration. Done
+2026-10-07: see "Contribution 3 pre-specified" in `docs/decisions.md`.
 
-- [ ] One primary performance metric named (e.g. AUPRC, or false alerts per
-      shift at the alert budget `evaluation.alert_budget_alerts` per
-      `alert_budget_hours`).
-- [ ] The test that decides "beats the comparator" named (e.g. a
-      patient-clustered bootstrap CI on the paired difference).
-- [ ] Hu 2026 rule: reported both as published and recalibrated to hourly
-      Prismaflex charting; recalibration procedure specified and fit inside
-      training folds only.
-- [ ] `Clots Increasing` comparator: how it is turned into a score or alert
-      specified.
-- [ ] Stated in advance: if the model does not beat both comparators, that is
+- [x] One primary performance metric named: event-level sensitivity at
+      matched alert volume, for gradient boosting on the primary label and
+      horizon, pooled out-of-fold. AUPRC stays the headline discrimination
+      metric and does not decide.
+- [x] The test that decides "beats the comparator" named: a
+      patient-clustered bootstrap CI on the paired difference, with a lower
+      bound above 0. The model must beat all three arms (intersection–union,
+      no correction).
+- [x] Hu 2026 rule: reported both as published (derived BFR/TFR, which
+      match Hu's formulas, so no offset) and recalibrated. Recalibration
+      picks one Youden-optimal threshold per Δ inside each outer training
+      set.
+- [x] `Clots Increasing` comparator: alerts from its first entry on the
+      circuit until the circuit ends.
+- [x] Stated in advance: if the model does not beat both comparators, that is
       reported as the finding.
 
 ## 5. Decision rules written as rules
