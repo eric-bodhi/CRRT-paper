@@ -49,6 +49,7 @@ EVERY_STAGE: tuple[Stage, ...] = (
     features.build_machine_features, features.build_anticoag_features,
     features.build_lab_features, features.build_access_features,
     features.build_hemodynamic_features, features.build_static_features,
+    features.build_missingness_features,
 )
 LABEL_TABLES = {outcomes.build_circuit_failure: "circuit_failure_labels",
                 outcomes.build_hypophos: "hypophos_labels"}

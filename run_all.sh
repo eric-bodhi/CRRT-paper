@@ -12,8 +12,8 @@
 # Implemented so far: database build, the mimic-code concepts, the itemid
 # evidence sweep, circuits, the cohort with its STROBE flow, the adjudication
 # sample, the outcome labels, the machine, anticoagulation,
-# coagulation/hematology, chemistry, vascular access, hemodynamic and static
-# features, and the sensitivity analyses.
+# coagulation/hematology, chemistry, vascular access, hemodynamic, static
+# and missingness features, and the sensitivity analyses.
 
 set -euo pipefail
 
@@ -56,9 +56,9 @@ uv run python -m crrt.outcomes
 # 5. Features (Part 7): one row per prediction row, from data stored by the
 #    prediction time -> tables machine_features, anticoag_features,
 #    lab_features (coagulation/hematology and chemistry), access_features
-#    (vascular access) and hemodynamic_features; one row per circuit, from
-#    data stored by CRRT start -> table static_features. The other clinical
-#    groups to follow.
+#    (vascular access), hemodynamic_features and missingness_features
+#    (whether and how often each signal was measured); one row per circuit,
+#    from data stored by CRRT start -> table static_features.
 #    Prints aggregate coverage only.
 uv run python -m crrt.features
 
