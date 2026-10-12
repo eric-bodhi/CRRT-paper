@@ -232,7 +232,7 @@ SELECT
         WHEN c.end_clotted OR c.end_reason = 'Clotted' THEN 'clotted'
         WHEN c.end_clots_increasing THEN 'clots_increasing'
         WHEN c.end_death THEN 'death'
-        WHEN c.circuit_end - c.circuit_start >= getvariable('reached_limit') THEN 'reached_limit'
+        WHEN c.circuit_end - c.circuit_start >= getvariable('long_running') THEN 'long_running'
         WHEN c.end_reason IN ('Procedure', 'Line changed') THEN 'procedure_or_line_change'
         WHEN c.end_icu_discharge THEN 'icu_discharge'
         WHEN c.circuit_no = max(c.circuit_no) OVER (PARTITION BY c.stay_id) THEN 'crrt_ended'

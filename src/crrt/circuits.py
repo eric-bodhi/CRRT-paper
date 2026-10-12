@@ -36,7 +36,7 @@ def bind(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
         "new_filter_min_after_start": timedelta(
             hours=c["new_filter_min_hours_after_segment_start"]
         ),
-        "reached_limit": timedelta(hours=c["reached_limit_hours"]),
+        "long_running": timedelta(hours=c["long_running_hours"]),
     }
     for name, (before, after) in c["windows_hours"].items():
         variables[f"{name}_before"] = timedelta(hours=before)

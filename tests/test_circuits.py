@@ -219,8 +219,8 @@ def test_death_after_the_end():
     assert rows[0]["termination_class"] == "death"
 
 
-def test_long_circuit_reached_the_scheduled_limit():
-    limit = C["reached_limit_hours"]
+def test_long_circuit_with_no_higher_class_is_long_running():
+    limit = C["long_running_hours"]
     rows = (
         Stays().stay(14)
         .machine(14, 0, limit + 1)
@@ -228,7 +228,7 @@ def test_long_circuit_reached_the_scheduled_limit():
         .machine(14, limit + 2, limit + 10)
         .run()
     )
-    assert rows[0]["termination_class"] == "reached_limit"
+    assert rows[0]["termination_class"] == "long_running"
 
 
 def test_icu_discharge_after_the_end():
