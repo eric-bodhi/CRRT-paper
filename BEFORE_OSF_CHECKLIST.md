@@ -43,19 +43,22 @@ The registration states what was seen before it was written. Disclosing only
 
 ## 3. Lock every open value in `config/config.yaml`
 
-Each one gets a dated entry in `docs/decisions.md` (Part 14).
+Each one gets a dated entry in `docs/decisions.md` (Part 14). Done
+2026-10-07: see "Validation and leakage values locked".
 
-- [ ] `validation.outer_folds` (`null`)
-- [ ] `validation.inner_folds` (`null`)
-- [ ] `validation.bootstrap_iterations` (`null`)
-- [ ] `validation.temporal_split_anchor_year_group` (`null`)
-- [ ] `evaluation.shuffled_label_control.auroc_tolerance` (`null`, marked
-      UNLOCKED). This is the leakage tripwire; it must be fixed before any
-      result exists to tune it against.
-- [ ] `blanking_minutes` — 30 with 60 as sensitivity, but still commented
-      UNLOCKED. Lock it formally and remove the marker.
-- [ ] `grep -n "UNLOCKED\|: null" config/config.yaml` returns nothing that
-      shapes the cohort, a label, a feature window or an evaluation cut-point.
+- [x] `validation.outer_folds` (5)
+- [x] `validation.inner_folds` (3)
+- [x] `validation.bootstrap_iterations` (2,000; CIs only, no optimism
+      correction — for the authors to confirm)
+- [x] `validation.temporal_split_anchor_year_group` (`2020 - 2022`)
+- [x] `evaluation.shuffled_label_control.auroc_tolerance` (0.02, two-sided).
+      This is the leakage tripwire; it is fixed before any result exists to
+      tune it against.
+- [x] `blanking_minutes` — 30 with 60 as sensitivity, locked and the
+      UNLOCKED marker removed.
+- [x] `grep -n "UNLOCKED\|: null" config/config.yaml` returns nothing that
+      shapes the cohort, a label, a feature window or an evaluation cut-point
+      (only the header's explanation of the marker).
 
 ## 4. Pre-specify contribution 3: "does ML add anything"
 
