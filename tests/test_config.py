@@ -33,7 +33,7 @@ REQUIRED_KEYS = [
     "circuits.max_downtime_hours_sensitivity",
     "circuits.new_filter_min_hours_after_segment_start",
     "circuits.windows_hours",
-    "circuits.reached_limit_hours",
+    "circuits.long_running_hours",
     "reporting.small_cell_threshold",
     "prediction.step_hours",
     "prediction.horizon_hours",

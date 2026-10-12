@@ -69,7 +69,7 @@ flag is taken from the circuit's last piece.
 | `clotted` | `end_clotted`, or `end_reason = 'Clotted'` | 1 |
 | `clots_increasing` | `end_clots_increasing` | 2 |
 | `death` | `end_death` | 3 |
-| `reached_limit` | `duration_hours ≥ circuits.reached_limit_hours` | 4 |
+| `long_running` | `duration_hours ≥ circuits.long_running_hours`. No clot charted at the end; not assumed to be a scheduled change. Named `reached_limit` before 2026-10-12. | 4 |
 | `procedure_or_line_change` | `end_reason` is `Procedure` or `Line changed` | 5 |
 | `icu_discharge` | `end_icu_discharge` | 6 |
 | `crrt_ended` | `last_of_stay` | 7 |

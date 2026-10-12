@@ -247,10 +247,14 @@ circuits:                                   # Plan Parts 4.3, 4.4, 5.1
     death_after_end: [1, 12]          # admissions.deathtime
     icu_discharge_after_end: [1, 6]   # icustays.outtime
 
-  # A circuit at least this long that no higher class explains ended at the
-  # scheduled change (outcomes.circuit_failure.scheduled_change_interval_hours,
-  # 72 h), less slack for when in the shift the swap was done.
-  reached_limit_hours: 66
+  # A circuit at least this long that no higher class explains is
+  # long_running: no clot was charted at the end. It is not assumed to be a
+  # scheduled change: 913 of the 1,875 have no System Integrity entry at the
+  # end at all (decisions.md 2026-10-12, "long_running replaces
+  # reached_limit"). 66 h is the 72 h change interval
+  # (outcomes.circuit_failure.scheduled_change_interval_hours) less slack for
+  # when in the shift the swap was done.
+  long_running_hours: 66
 
 
 prediction:                                 # Plan Part 6
@@ -306,7 +310,7 @@ outcomes:
         classes: [undocumented]
         circuits: 45
       other_non_event:
-        classes: [reached_limit, procedure_or_line_change, icu_discharge,
+        classes: [long_running, procedure_or_line_change, icu_discharge,
                   crrt_ended, stopped_then_restarted]
         circuits: 40
     # Part 13 kill checkpoint (end of week 9): below this kappa, circuit

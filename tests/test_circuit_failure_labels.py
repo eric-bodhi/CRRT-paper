@@ -166,7 +166,7 @@ def test_documenting_entry_outside_the_class_window_is_ignored():
 def test_non_event_end_is_negative_and_blanked_the_same_way():
     """Blanking is applied at every end, so scoring cannot depend on the label."""
     end = 30
-    rows = by_hour(Circuits().circuit(1, end, "reached_limit").run()[1])
+    rows = by_hour(Circuits().circuit(1, end, "long_running").run()[1])
     for h, r in rows.items():
         if h >= WARMUP:
             if h + BLANK_H >= end:
@@ -245,7 +245,7 @@ def test_clot_after_the_maximum_age_is_not_observed():
             assert r["label"] is None and r["censor_reason"] == "max_age", h
 
 
-@pytest.mark.parametrize("cls, expected", [("clotted", True), ("reached_limit", False)])
+@pytest.mark.parametrize("cls, expected", [("clotted", True), ("long_running", False)])
 def test_end_before_the_maximum_age_is_observed_even_if_the_window_runs_past_it(cls, expected):
     end = MAX_AGE - 2
     rows = by_hour(Circuits().circuit(1, end, cls).run()[1])

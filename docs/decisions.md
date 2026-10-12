@@ -2,6 +2,71 @@
 
 Every judgment call, with its date (plan Part 14). Newest first.
 
+## 2026-10-12 — `long_running` replaces `reached_limit`
+
+**Decision.** Termination class 4 (a circuit of at least 66 h that no
+higher class explains) is renamed from `reached_limit` to `long_running`,
+and its config key from `circuits.reached_limit_hours` to
+`circuits.long_running_hours`. The rule, the 66 h value and the hierarchy
+are unchanged, so no label changes. The class means "ran at least 66 h and
+no clot was charted at the end". It no longer claims that the filter came
+down at a scheduled change.
+
+This answers the faculty mentor's review of the outcome definition (email,
+2026-10-12): do not assume circuits ending around 66–72 h were scheduled
+replacements, and consider an "uncertain" category for circuits whose
+reason for ending is unclear.
+
+**Why.**
+
+- **The old name claimed a reason the data does not hold.** Of the 1,875
+  circuits in the class, 913 have no System Integrity entry at the end.
+  Another 892 have only `Discontinued` or `Recirculating`, which says the
+  machine stopped, not why. 70 carry a 225956 `Procedure` or `Line changed`
+  reason.
+- **"Uncertain" is not a subgroup; it is most of the non-events.** Across
+  the 8,414 cohort circuits, a reason for the end is charted for 2,322
+  (27.6%): `Clotted`, `Clots Increasing`, or a 225956 reason. 2,878 (34.2%)
+  have only `Discontinued` or `Recirculating`, and 3,214 (38.2%) have
+  nothing. Every class below `death` except `procedure_or_line_change` is
+  inferred from circuit age, position in the stay or what followed.
+  Excluding the circuits with no charted reason would leave mostly
+  documented clots and select on how the circuit ended, which is the reason
+  `undocumented` stayed in the primary as a non-event (2026-10-02).
+- **So the outcome is documented clotting, and the negatives are "no clot
+  documented".** The positives track physiology: a terminal pressure-drop
+  rise above 20 mmHg in 0.69 of documented clots, against 0.23 for this
+  class, 0.24 when CRRT ends and 0.35 for `undocumented` (feasibility §2.4).
+  Hidden clots among the negatives bias the primary toward the null. The
+  adjudication sample measures how many there are: its `undocumented` and
+  `other_non_event` strata (2026-10-04, "Adjudication sample") estimate the
+  share of each that an adjudicator calls a clot.
+
+**What does not change.**
+
+- Primary and sensitivity labels. Every class but `clotted` is a non-event
+  in the primary analysis, and the analysis that excludes undocumented ends
+  excludes the `undocumented` class only.
+- The adjudication sample. Stratum membership is the same, and stage 3b
+  reprints the frozen fingerprint. The adjudicator's pages never show the
+  class.
+- `outcomes.circuit_failure.scheduled_change_interval_hours` (72 h) keeps
+  its name. It censors follow-up on circuit age (2026-10-03) and says
+  nothing about why any circuit ended.
+- `docs/feasibility.md` and the older entries here keep `reached_limit`.
+  They record what was run under that name.
+
+**For the authors.** Circuit age sits above `procedure_or_line_change` in
+the hierarchy, so 70 circuits with a charted non-clot reason are
+`long_running`. Both classes are non-events in the same adjudication
+stratum, so neither a label nor the sample depends on the order. It is
+left as it is.
+
+**Where it applies.** Plan Part 5.1. `sql/crrt_circuits.sql`,
+`src/crrt/circuits.py`, `config/config.yaml → circuits.long_running_hours`
+and `outcomes.circuit_failure.adjudication_strata`,
+`docs/data_dictionary.md` (`crrt_circuits`).
+
 ## 2026-10-07 — Missingness features
 
 **Decision.** `sql/missingness_features.sql` builds the missingness group
