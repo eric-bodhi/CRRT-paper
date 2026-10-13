@@ -145,7 +145,7 @@ Two things to do before the protocol is locked (Part 13, weeks 3–4):
 
 **5.2 Hypophosphatemia.** Incident serum phosphate <2.0 mg/dL (moderate) or <1.0 mg/dL (severe) during CRRT, in a patient not already below threshold at prediction time. Handle repletion explicitly — the MIMIC phosphate literature has flagged unaccounted supplementation as a limitation, so account for it via `inputevents` and treat it as a competing intervention, not ignore it.
 
-**5.3 Censoring and competing risks.** A circuit running when the patient dies did not "survive." A patient discharged from CRRT is not an event. Use time-to-event framing with death and elective discontinuation as competing risks, or be explicit that you're doing a fixed-horizon binary task and how you handle truncation. Do not silently drop censored cases.
+**5.3 Censoring and competing risks.** A circuit running when the patient dies did not "survive." A patient discharged from CRRT is not an event. Use time-to-event framing with death and elective discontinuation as competing risks, or be explicit that you're doing a fixed-horizon binary task and how you handle truncation. Do not silently drop censored cases. *(2026-10-13: both. The fixed-horizon label estimates the H-hour cumulative incidence of documented clotting, with other endings competing, not censored; `docs/decisions.md`.)*
 
 **5.4 Notes are optional and probably a trap.** MIMIC-IV-Note could enrich labels, but it adds a DUA, huge NLP scope, and the publication restriction that individual MIMIC clinical notes cannot be published in papers without explicit patient consent. Skip for v1.
 
@@ -195,7 +195,7 @@ Cleaning rules must be pre-specified: physiologic plausibility bounds per variab
 1. **Clinical baselines.** Two fixed decision rules. These are your "does ML beat the simple thing" comparators, and what separates a real paper from a leaderboard exercise.
    - The published two-parameter pressure rule (Hu 2026, Part 3.1), reported both as published and recalibrated.
    - The nurse-observation rule: `Clots Increasing` charted.
-2. **Penalized logistic regression** on last-value features. Interpretable, cheap, often within a few points of the best model.
+2. **Penalized logistic regression** on last-value features. Interpretable, cheap, often within a few points of the best model. *(2026-10-13: specified as a landmark, competing-risks discrete-time hazard model, a penalized multinomial logistic regression on the same features; `docs/decisions.md`.)*
 3. **Gradient boosting** (LightGBM/XGBoost) on the full engineered feature set. Almost certainly your headline model.
 4. **Temporal model** (GRU / temporal CNN / TCN) on raw hourly sequences — only if you have the event volume. With a few hundred events this will overfit; say so rather than force it.
 

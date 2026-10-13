@@ -2,6 +2,158 @@
 
 Every judgment call, with its date (plan Part 14). Newest first.
 
+## 2026-10-13 — Survival framing adopted, independent censoring declined
+
+**The email.** The faculty mentor wrote on 2026-10-13, following the
+2026-10-12 review (entry below), to recommend the survival framework
+discussed when the team met the month before:
+
+- A discrete-time survival model with time-varying covariates. It models the
+  probability of clotting in each hour, given that the circuit is still
+  running, with the changing pressures as covariates, and it accounts for
+  different circuit lifespans. From it, estimate the probability of clotting
+  within the next 6 h.
+- Circuits that end without documented clotting are censored, "rather than
+  classifying these as true non-clotting events". Other endings are
+  competing risks, but for an initial analysis independent censoring is
+  "reasonable", and a competing-risks approach can follow later.
+- The clinician review of the 150 circuits is still needed, to establish
+  how accurately the nursing documentation identifies actual clotting.
+
+The email is summarised here rather than copied because this repository is
+public.
+
+**Decision.** Three parts are adopted. One is not.
+
+1. **The estimand is stated in survival terms.** At hour *t* of a running
+   circuit, the prediction is the probability that the circuit ends with
+   documented clotting in (*t*, *t* + H]. That is the cumulative incidence
+   of clotting, with every other ending as a competing event. The
+   2026-10-03 labels already estimate it. A filter that comes down for
+   another reason inside the window did not clot in it, so the row is
+   negative. No label changes.
+2. **The mentor's model becomes rung 2 of the ladder (Part 8.1), in landmark
+   and competing-risks form.**
+   - The landmarks are the existing scored rows, and the covariates are the
+     ones available at *t*, as now.
+   - Each hour *k* = 1…H after *t* in which the circuit is followed has one
+     of three outcomes: ended with a documented clot, ended otherwise, still
+     running.
+   - The model is a penalized multinomial logistic regression with *k* as a
+     categorical term, which is the discrete-time baseline hazard. Circuit
+     age at *t* is already a machine feature.
+   - The H-hour risk is the cumulative incidence, Σ<sub>k</sub>
+     S(*k*−1)·p<sub>clot</sub>(*k*), where S is the probability that no
+     ending of any kind has happened yet.
+   - Follow-up stops at the existing censors: 72 h of circuit age, and
+     death. A censored window contributes the hours it was observed instead
+     of being dropped. Death windows (4,356) and 72 h windows (5,179) are
+     dropped now.
+   - It replaces "penalized logistic regression on last-value features":
+     same family, same features, same penalty search. As before, it is
+     reported and does not decide (2026-10-07).
+3. **Gradient boosting and contribution 3 do not change.** The confirmatory
+   comparison (2026-10-07) ranks rows at matched alert volume and does not
+   depend on how a model is parameterised. Gradient boosting keeps the
+   direct H-hour label. Both rungs estimate the same quantity, and their
+   calibration (Part 8.3) is read on the same labelled rows.
+4. **Independent censoring of non-clot endings is not adopted, not even
+   for a first pass.**
+
+**The step from hourly hazards to a 6 h risk needs the landmark form.**
+The email does not say how it is taken. The hazard in hour *t* + 3 depends
+on the pressures at *t* + 2, which are unknown at *t*. Holding them at their
+value at *t* is wrong for exactly the signal that matters, a rising
+pressure. Modelling the hours after *t* from covariates at *t* is the
+standard fix (van Houwelingen's landmarking). It also keeps the leakage rule
+of Part 6.4: nothing after *t* enters.
+
+**Why not independent censoring.**
+
+- **It does not do what the email hopes for the undocumented ends.** In an
+  hourly hazard model, the last hour of a censored circuit is coded "no
+  clot", exactly as the current label codes it. A hidden clot is a zero
+  either way. Censoring changes only the step from hourly hazards to a
+  6 h probability: it assumes that the circuit, had it stayed up, would
+  have carried on with the clot risk of similar circuits that did stay up.
+- **The data contradict that assumption.** It would cover every ending
+  except `clotted` and `death`: 5,863 of 8,414 circuits (69.7%,
+  feasibility §2.3). They include:
+  - the 543 `clots_increasing` circuits, taken down after a nurse charted
+    increasing clots. Their terminal pressure-drop rise matches documented
+    clots: 0.72 of them rise by more than 20 mmHg, against 0.69 (§2.4);
+  - the 1,221 `undocumented` ends, about a quarter of them estimated
+    hidden clots (0.35 against 0.23–0.24 for `long_running` and CRRT
+    ending).
+
+  These filters came down because they were failing, or while they were.
+  A paper that assumed independent censoring would state an assumption
+  that its own feasibility table refutes.
+- **The number it produces answers a different question.**
+  1 − Π(1 − h<sub>clot</sub>) is the clot risk in a world where no filter
+  is ever taken down for another reason. It is higher than the real risk,
+  and it cannot be checked against what happened. The nurse's question,
+  "will this filter clot in the next 6 h", is the cumulative incidence.
+- **In discrete time, competing risks is not the harder version.** It is
+  the same rows with a third outcome category. Starting with independent
+  censoring saves no work, and switching later would change the estimand
+  after registration.
+- **How much it moves the number.** 26,801 labelled rows (8.7%) have another
+  ending inside their 6 h window, in 4,923 circuits. There are 8,639
+  positive rows. Censoring those windows would credit each one with a
+  running circuit's clot risk for its remaining hours. Roughly 26,801 rows ×
+  ~3 h × ~0.5% per hour comes to ~400 expected clots, about 5% on the mean
+  predicted risk. The effect is concentrated where other endings cluster:
+  CRRT stopping, procedures, the approach to 72 h. The case against
+  independent censoring rests on the assumption and the estimand, not on
+  the size of the average.
+
+**What does not change.**
+
+- The labels, the censors, the adjudication sample and the κ rules.
+- Contribution 3 and its comparators.
+- Every registered sensitivity analysis. The mentor's concern about
+  undocumented ends is real. It is met by the adjudication (its
+  `undocumented` stratum measures the hidden-clot share), by the analysis
+  that excludes `undocumented`, and by the sensitivity label.
+- The clinician review of the 150 circuits. The email confirms it.
+
+**For the authors.**
+
+- **Reply to the mentor** before registration. The current labels already
+  treat other endings as competing events, so independent censoring would
+  be a step back, not a simpler start. Ask whether the mentor accepts the
+  landmark, competing-risks rung 2. If the mentor holds to independent
+  censoring, the net-risk number comes from the same fitted hazards and can
+  be reported beside it as exploratory.
+- **Death is the one place the labels do assume independent censoring.**
+  `competing_risk_classes: [death]` nulls the label (2026-10-02). In
+  survival terms that treats death as censoring, not as a competing event,
+  despite the key's name. Under decision 1, death is a competing ending
+  like any other.
+  - Keeping it censored is defensible: charting near death is the least
+    reliable, and it is 877 circuits.
+  - Either way it must be stated as an assumption, and decided before
+    registration (`BEFORE_OSF_CHECKLIST.md` §11).
+  - Lean: make it a competing ending in the primary, keep censoring as a
+    sensitivity analysis. Not changed here, because it reverses a logged
+    decision.
+- **Questions for clinical input**, to be put to an ICU nurse on
+  2026-10-13. The answers bear on the censoring argument and get logged
+  here:
+  - When a filter that has not clotted is changed, how often is it because
+    it was starting to fail?
+  - What decides whether a nurse charts `Clotted`, `Discontinued` or
+    nothing?
+  - Is the change at 72 h routine, whatever the filter's state?
+- **Computed for this entry:** label counts only, the 26,801 rows and 4,923
+  circuits above. No feature–outcome association, and no model or
+  comparator (checklist §0).
+
+**Where it applies.** Plan Parts 5.3, 8.1, 8.3 and 12;
+`BEFORE_OSF_CHECKLIST.md` §11. Stage 8 builds rung 2's landmark-hour rows
+and adds them to `docs/data_dictionary.md`.
+
 ## 2026-10-12 — `long_running` replaces `reached_limit`
 
 **Decision.** Termination class 4 (a circuit of at least 66 h that no

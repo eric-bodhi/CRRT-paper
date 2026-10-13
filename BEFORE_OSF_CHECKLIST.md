@@ -182,6 +182,20 @@ One line each in the registration, so none reads as post hoc. Current
       keeps the circuit definition private until submission; public now
       strengthens the priority claim. The timestamp counts either way.
 
+## 11. The survival framing
+
+Added 2026-10-13: see "Survival framing adopted, independent censoring
+declined" in `docs/decisions.md`.
+
+- [ ] The faculty mentor has answered on competing endings in place of
+      independent censoring, and the answer is logged.
+- [ ] Death decided and logged: censored (as now) or a competing ending,
+      with the other choice as a sensitivity analysis listed in §7.
+- [ ] The registration states the estimand: the H-hour cumulative incidence
+      of documented clotting, with other endings competing.
+- [ ] The registration specifies rung 2 as the landmark, competing-risks
+      discrete-time model.
+
 ## After submission
 
 - Any change goes in as an OSF update with a dated rationale, mirrored in
