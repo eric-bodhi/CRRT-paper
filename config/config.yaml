@@ -281,6 +281,15 @@ prediction:                                 # Plan Part 6
 
 
 outcomes:
+  # Death, in both outcomes (Part 5.3). Primary: a competing ending. A
+  # window in which the patient dies before any event is labelled like any
+  # other window the event is not in: for circuit failure, a filter that
+  # came down for another reason; for hypophosphatemia, from the draws.
+  # Sensitivity: the window is censored (label null). Decided 2026-10-17
+  # (docs/decisions.md, "Death is a competing ending").
+  death_handling_primary: competing
+  death_handling_sensitivity: censor
+
   circuit_failure:                          # Plan Part 5.1 — primary outcome
     # Scheduled elective swap interval. Circuit lifespan well short of this is
     # corroborating signal for premature clotting failure (5.1 step 3).
@@ -294,8 +303,10 @@ outcomes:
     # 5.1 step 4 — a clinician adjudicates a sample of terminations against
     # the algorithm; report Cohen's kappa. Stratified by termination_class,
     # not simple random: a random 150 holds about 30 documented clots and 20
-    # undocumented ends, too few to estimate either class. The frame is every
-    # cohort circuit with a label, so death (censored) is in no stratum.
+    # undocumented ends, too few to estimate either class. Death endings
+    # are in no stratum: the sample was drawn while death was censored and
+    # is frozen, so the frame is every included circuit that does not end
+    # in death (decisions.md 2026-10-17, "Death is a competing ending").
     # Kappa is weighted back to the frame (stratum size / circuits drawn).
     # Drawn once with reproducibility.random_seed and frozen before any model
     # is fit. Decided 2026-10-04 (docs/decisions.md, "Adjudication sample").
@@ -359,9 +370,11 @@ outcomes:
     # undefined there (decisions.md 2026-10-04, "Sensitivity analyses").
     event_classes_primary: [clotted]
     event_classes_sensitivity: [clotted, clots_increasing]
-    # Circuits that end in death can never become events; they are censored
-    # under the Part 5.3 competing-risk framing, not counted as non-events.
-    competing_risk_classes: [death]
+    # crrt_circuits.termination_class values that mean the patient died
+    # (circuits.windows_hours.death_after_end). What such an end does to a
+    # label is outcomes.death_handling_*. Renamed from competing_risk_classes
+    # on 2026-10-17: every non-event ending competes, not death alone.
+    death_classes: [death]
     # 5.1 step 5 — pre-specified, so it cannot be chosen after seeing results.
     # "Unclear" is termination_class 'undocumented' (14.5% of circuits >=4 h,
     # about a quarter of them probably hidden clots, feasibility §2.4).

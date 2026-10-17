@@ -185,7 +185,8 @@ prints is what is recorded.
 
 - The frame of a stratum is every included circuit whose
   `termination_class` is in its `classes`, sorted by `circuit_id`.
-  Censored classes (`competing_risk_classes`) are in no stratum.
+  Death endings (`death_classes`) are in no stratum: the sample was drawn
+  while death was censored and is frozen (`docs/decisions.md` 2026-10-17).
 - One generator, seeded once, draws the strata in config order without
   replacement, then shuffles `review_order`.
 - The fingerprint is a SHA-256 over the sampled `stay_id,circuit_start`
@@ -275,8 +276,8 @@ primary circuit-failure label (Parts 5.1, 5.3, 6.1–6.3). Built by
 | `end_time` | timestamp | When the filter ended: the earlier of `circuit_end` and the first System Integrity entry documenting the class (`Clotted` for `clotted`, `Clots Increasing` for `clots_increasing`). Never a feature. |
 | `not_scored_reason` | text | First rule failed, in order: `unclear_excluded` (class in `outcomes.circuit_failure.unclear_classes` and `unclear_handling` = `exclude`); `warmup` (`hours_since_start < prediction.warmup_hours`); `past_max_age` (`hours_since_start ≥ outcomes.circuit_failure.scheduled_change_interval_hours`); `blanking` (`pred_time + prediction.blanking_minutes ≥ end_time`, any class); `downtime` (no machine charting in the `sessionization.gap_hours` up to `pred_time`). Null if scored. |
 | `scored` | boolean | `not_scored_reason` is null. |
-| `label` | boolean | Scored rows only. Follow-up stops at the censor time, `circuit_start + scheduled_change_interval_hours`. If `end_time` is in the window (*t*, *t* + `prediction.horizon_hours`] and by the censor time: true if the class is in `event_classes`, null if it is in `competing_risk_classes`, false otherwise. If not, false when the window ends by the censor time (the filter ran through it) and null when it runs past it. |
-| `censor_reason` | text | Why a scored row's `label` is null: `competing_risk` (death in the window) or `max_age` (the window runs past the censor time with the filter still up). |
+| `label` | boolean | Scored rows only. Follow-up stops at the censor time, `circuit_start + scheduled_change_interval_hours`. If `end_time` is in the window (*t*, *t* + `prediction.horizon_hours`] and by the censor time: true if the class is in `event_classes`; null if it is in `outcomes.circuit_failure.death_classes` and `outcomes.death_handling_primary` is `censor` (a sensitivity analysis); false otherwise, death included when `death_handling` is `competing` (the primary). If not, false when the window ends by the censor time (the filter ran through it) and null when it runs past it. |
+| `censor_reason` | text | Why a scored row's `label` is null: `death` (the circuit ends in death in the window, under `death_handling` = `censor` only) or `max_age` (the window runs past the censor time with the filter still up). |
 
 ## `hypophos_labels`
 
@@ -322,7 +323,7 @@ model stages read `WHERE scored`.
 | `not_scored_reason` | text | First rule failed, in order: `already_low` (`first_low_at ≤ pred_time`, whether or not the result is stored); `no_known_value`; `known_low` (`known_value < moderate_mg_dl`). Null if scored. |
 | `scored` | boolean | `not_scored_reason` is null. |
 | `label` | boolean | Scored rows only, over (*t*, *t* + `outcomes.hypophosphatemia.horizon_hours`]. Null if `censor_reason` is set. Otherwise true if `first_low_at` is in the window, false if not. With `repletion_handling` = `composite` (a sensitivity analysis), a repletion order in the window before any low draw also makes it true. |
-| `censor_reason` | text | Checked in order: `repletion` (a phosphate order, IV or oral, starts in the window before any low draw; only when `outcomes.hypophosphatemia.repletion_handling_primary` is `censor`. Under `ignore` the row is labelled from the draws alone, under `composite` it is true); `competing_risk` (no low draw in the window, and death in it); `unmeasured` (no phosphate drawn in the window). |
+| `censor_reason` | text | Checked in order: `repletion` (a phosphate order, IV or oral, starts in the window before any low draw; only when `outcomes.hypophosphatemia.repletion_handling_primary` is `censor`. Under `ignore` the row is labelled from the draws alone, under `composite` it is true); `death` (no low draw in the window, and death in it; only when `outcomes.death_handling_primary` is `censor`. Under `competing`, the primary, death changes nothing); `unmeasured` (no phosphate drawn in the window). |
 
 ## `machine_features`
 
@@ -750,6 +751,7 @@ rules of the `main` tables of the same name.
 | `unclear_exclude` | `outcomes.circuit_failure.unclear_handling_primary` | `circuit_failure_labels` |
 | `phosphate_below_1_5` | `outcomes.hypophosphatemia.moderate_mg_dl` | `hypophos_labels` |
 | `repletion_<handling>` | `outcomes.hypophosphatemia.repletion_handling_primary` | `hypophos_labels` |
+| `death_censor` | `outcomes.death_handling_primary` | `circuit_failure_labels`, `hypophos_labels` |
 | `max_downtime_<h>h` | `circuits.max_downtime_hours` | `crrt_circuits` through `missingness_features` |
 | `segment_gap_<h>h` | `sessionization.gap_hours` | `crrt_circuits` through `missingness_features` |
 

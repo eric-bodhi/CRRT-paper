@@ -40,6 +40,8 @@ REQUIRED_KEYS = [
     "prediction.horizon_hours_sensitivity",
     "prediction.blanking_minutes",
     "prediction.warmup_hours",
+    "outcomes.death_handling_primary",
+    "outcomes.death_handling_sensitivity",
     "outcomes.circuit_failure.scheduled_change_interval_hours",
     "outcomes.circuit_failure.adjudication_strata",
     "outcomes.circuit_failure.adjudication_min_kappa",
@@ -51,7 +53,7 @@ REQUIRED_KEYS = [
     "outcomes.circuit_failure.adjudication_windows_python",
     "outcomes.circuit_failure.event_classes_primary",
     "outcomes.circuit_failure.event_classes_sensitivity",
-    "outcomes.circuit_failure.competing_risk_classes",
+    "outcomes.circuit_failure.death_classes",
     "outcomes.circuit_failure.unclear_classes",
     "outcomes.circuit_failure.unclear_handling_primary",
     "outcomes.circuit_failure.unclear_handling_sensitivity",
@@ -123,9 +125,10 @@ def test_hypophosphatemia_severe_below_moderate(config):
 
 
 def test_adjudication_strata_cover_every_labelled_class_once(config):
-    """The strata partition every termination_class except the censored ones
-    (decisions.md 2026-10-04, "Adjudication sample"). A class added to
-    crrt_circuits.sql without a stratum would silently leave the frame."""
+    """The strata partition every termination_class except death
+    (decisions.md 2026-10-04, "Adjudication sample"; 2026-10-17, "Death is
+    a competing ending"). A class added to crrt_circuits.sql without a
+    stratum would silently leave the frame."""
     cf = config["outcomes"]["circuit_failure"]
     sql = (Path(__file__).parents[1] / "sql" / "crrt_circuits.sql").read_text()
     end = sql.index("END AS termination_class")
@@ -134,7 +137,7 @@ def test_adjudication_strata_cover_every_labelled_class_once(config):
     strata = [s["classes"] for s in cf["adjudication_strata"].values()]
     in_strata = [c for classes in strata for c in classes]
     assert len(in_strata) == len(set(in_strata))
-    assert set(in_strata) == every_class - set(cf["competing_risk_classes"])
+    assert set(in_strata) == every_class - set(cf["death_classes"])
     assert all(s["circuits"] > 0 for s in cf["adjudication_strata"].values())
 
 

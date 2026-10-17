@@ -2,6 +2,107 @@
 
 Every judgment call, with its date (plan Part 14). Newest first.
 
+## 2026-10-17 — Death is a competing ending
+
+**Decision.** In both outcomes, death is a competing ending in the primary
+analysis, and censoring at death becomes a sensitivity analysis. This
+reverses the death row of 2026-10-02 ("censored, competing risk") and
+closes the death item of `BEFORE_OSF_CHECKLIST.md` §11.
+
+| | Primary (`competing`) | Sensitivity (`censor`) |
+|---|---|---|
+| Circuit failure: the circuit ends in `death` inside (*t*, *t* + H] | false, like every other ending that is not a clot | null, `censor_reason` = `death` |
+| Hypophosphatemia: the patient dies inside (*t*, *t* + 24 h] with no low draw first | labelled from the draws, as if there were no death: false if phosphate was drawn in the window, null (`unmeasured`) if not | null, `censor_reason` = `death` |
+
+- New keys: `outcomes.death_handling_primary` (`competing`) and
+  `outcomes.death_handling_sensitivity` (`censor`). Stage 6 builds the
+  sensitivity analysis as schema `death_censor`, with both label tables.
+- `outcomes.circuit_failure.competing_risk_classes` is renamed
+  `death_classes`. Since 2026-10-13 every ending other than a clot
+  competes, so a key naming death alone as the competing risk said the
+  opposite of what it did. For the same reason, the `censor_reason` value
+  `competing_risk` becomes `death` in both tables.
+
+**Why.**
+
+- **One estimand, and no informative censoring left.** 2026-10-13 stated
+  the prediction as the cumulative incidence of documented clotting in
+  (*t*, *t* + H], with every other ending competing. Death was the one
+  exception: the only place the labels assumed independent censoring. Now
+  the only censor is 72 h of circuit age. That one is administrative:
+  whether a window runs past it is known at *t* from the circuit's age, so
+  it is independent by construction.
+- **Censoring by nulling the window selects rows on the future.** Whether
+  the patient dies in the next 6 h is unknown at *t*. A deployed model
+  scores those hours too. Leaving them out of the fit and the evaluation
+  measures the model on rows chosen by an outcome nobody knows yet.
+  - This is why the primary keeps `undocumented` ends as non-events
+    (2026-10-02: exclusion "selects circuits on how they ended, which is
+    unknowable at prediction time").
+  - The 2026-10-02 case for censoring death raised the same objection
+    against excluding it. But a null label drops the row from the fit and
+    from the evaluation, so censoring is exclusion at the level of the row.
+- **"Counting it as a non-event mixes outcomes" (2026-10-02) no longer
+  holds.** By definition, the cumulative incidence counts every ending that
+  is not a clot as "did not clot in the window". 2026-10-13 already did so
+  for the other seven classes. Rung 2 keeps death apart from clotting: death
+  falls in "ended otherwise", one of its three hourly outcomes.
+- **Hypophosphatemia follows, for the same reasons.** A patient who dies
+  without a low draw did not become hypophosphatemic in the window. Nothing
+  about the phosphate label would justify the opposite choice there, and two
+  different choices would each have to be defended. Death cannot turn
+  missing labs into a negative: a window with no draw stays `unmeasured`.
+
+**What censoring guarded against, and why it is now the sensitivity
+analysis.**
+
+- Charting is least reliable near death, so a dying patient's clot may go
+  unrecorded (2026-10-13). The same holds for `undocumented` ends, and it is
+  answered the same way: non-event in the primary, the other handling as a
+  sensitivity analysis. A hidden clot coded as a non-event biases toward the
+  null. It does not flatter the model.
+- The hours before a death after withdrawal of care are not hours a nurse
+  would act on. That argues for an exclusion known at *t*, such as a
+  comfort-care order before *t*, not for one defined by the death itself.
+  None is added here.
+
+**The adjudication sample does not change.** It was drawn and frozen on
+2026-10-04 with death in no stratum, and redrawing it would break its
+fingerprint. Death endings are now labelled non-events but are not
+adjudicated. κ is weighted back to the frame of the four strata, which is
+every included circuit that does not end in death, and the registration
+says so. The `death_censor` analysis is the check on those circuits.
+
+**Counts** (labels only; checklist §0):
+
+| | Circuit failure | Hypophosphatemia |
+|---|---|---|
+| Rows that change | 4,356 death windows in 823 circuits (816 patients), null → false | 11,257 death windows: 8,650 null → false; 2,607 null → `unmeasured` |
+| Positive rows | 8,639, unchanged | 25,703, unchanged |
+| Labelled rows (censor → competing) | 307,493 → 311,849 | 163,674 → 172,324 |
+| Prevalence | 2.8% → 2.8% | 15.7% → 14.9% |
+
+- Every row that changed is a death window, and none was positive.
+- `death_censor` reproduces the previous primary exactly.
+- The hypophosphatemia label moves more because its window is 24 h. Death
+  censored 5.8% of its scored rows, and the 2020–22 test era's prevalence
+  moves from 12.6% to 11.9%.
+
+**What does not change.**
+
+- The events, the 72 h censor, the unclear handling and every other
+  registered analysis.
+- Contribution 3 (2026-10-07). It is scored on labelled rows, which now
+  include the death windows.
+- Rung 2's form (2026-10-13). Its follow-up now stops only at 72 h: the
+  death censor listed there is gone.
+
+**Where it applies.** Plan Part 5.3. `config/config.yaml →
+outcomes.death_handling_*`, `outcomes.circuit_failure.death_classes`;
+`sql/circuit_failure_labels.sql`, `sql/hypophos_labels.sql`;
+`crrt.sensitivity`; `docs/data_dictionary.md`; `BEFORE_OSF_CHECKLIST.md`
+§5, §7 and §11.
+
 ## 2026-10-13 — Survival framing adopted, independent censoring declined
 
 **The email.** The faculty mentor wrote on 2026-10-13, following the

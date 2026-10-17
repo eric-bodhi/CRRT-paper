@@ -11,9 +11,9 @@ Both tables hold one row per included circuit per prediction time:
 
 This module binds each file's parameters from config/config.yaml and prints
 an aggregate summary. Only the primary analyses are built here. The
-sensitivity analyses (event classes, unclear handling, horizon, blanking,
-phosphate threshold, repletion handling) rebind the same SQL with their
-config values.
+sensitivity analyses (event classes, unclear handling, death handling,
+horizon, blanking, phosphate threshold, repletion handling) rebind the same
+SQL with their config values.
 
 The summary prints aggregates only, with every count under
 `reporting.small_cell_threshold` suppressed (Part 1.4).
@@ -53,7 +53,8 @@ def bind_circuit_failure(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) ->
         "machine_itemids": c["machine_itemids"],
         "system_integrity_itemid": c["system_integrity_itemid"],
         "event_classes": o["event_classes_primary"],
-        "competing_risk_classes": o["competing_risk_classes"],
+        "death_classes": o["death_classes"],
+        "death_handling": cfg["outcomes"]["death_handling_primary"],
         "unclear_classes": o["unclear_classes"],
         "unclear_handling": o["unclear_handling_primary"],
     }
@@ -75,6 +76,7 @@ def bind_hypophos(con: duckdb.DuckDBPyConnection, cfg: dict[str, Any]) -> None:
         "threshold": float(h["moderate_mg_dl"]),
         "phosphate_itemid": h["phosphate_itemid"],
         "repletion_handling": h["repletion_handling_primary"],
+        "death_handling": cfg["outcomes"]["death_handling_primary"],
         "repletion_orders": [f"{drug}={route}"
                              for drug, routes in h["repletion_orders"].items()
                              for route in routes],

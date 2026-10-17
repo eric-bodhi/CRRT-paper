@@ -109,7 +109,11 @@ This is the claim a reviewer will hold against the registration. Done
     stratum and κ without them are reported as secondary numbers;
   - κ for the sensitivity label, the PPV of `clotted` and the clot share
     among `undocumented` and `clots_increasing` are reported, and none of
-    them can replace the primary label.
+    them can replace the primary label;
+  - κ is weighted back to the frame of the four strata, every included
+    circuit that does not end in death. Death endings are labelled
+    non-events but not adjudicated (decision 2026-10-17, "Death is a
+    competing ending").
 - [ ] Plausibility bounds: data-derived until clinical review; a bound
       changed after registration is reported as a deviation.
 - [ ] Event-count kill rule: the minimum event count below which the paper
@@ -142,6 +146,8 @@ One line each in the registration, so none reads as post hoc. Current
 - [ ] `event_classes_sensitivity`
 - [ ] `unclear_handling_sensitivity`
 - [ ] `repletion_handling_sensitivity`
+- [ ] `death_handling_sensitivity` (decision 2026-10-17): death censored
+      instead of competing, both outcomes.
 - [ ] `inputevents` anticoagulation (decision 2026-10-04): circuit
       failure, eras 2008–10 to 2017–19 only, compared with the primary
       feature set on the same eras and folds. It also carries the
@@ -189,8 +195,10 @@ declined" in `docs/decisions.md`.
 
 - [ ] The faculty mentor has answered on competing endings in place of
       independent censoring, and the answer is logged.
-- [ ] Death decided and logged: censored (as now) or a competing ending,
-      with the other choice as a sensitivity analysis listed in §7.
+- [x] Death decided and logged: censored (as now) or a competing ending,
+      with the other choice as a sensitivity analysis listed in §7. Done
+      2026-10-17: a competing ending, censored as the sensitivity
+      analysis (see "Death is a competing ending").
 - [ ] The registration states the estimand: the H-hour cumulative incidence
       of documented clotting, with other endings competing.
 - [ ] The registration specifies rung 2 as the landmark, competing-risks
