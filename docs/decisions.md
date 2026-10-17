@@ -2,6 +2,96 @@
 
 Every judgment call, with its date (plan Part 14). Newest first.
 
+## 2026-10-17 — Confirmatory, secondary and exploratory analyses
+
+**Decision.** Every planned analysis sits in one of three tiers. This
+closes `BEFORE_OSF_CHECKLIST.md` §6, and the registration copies the lists.
+
+**Confirmatory.** A rule written before any model is fit decides each one.
+Each is reported whatever it shows, and only these can carry the paper's
+conclusions.
+
+1. **Contribution 3** (2026-10-07). Gradient boosting against Hu as
+   published, Hu recalibrated and `Clots Increasing`, on the primary
+   circuit-failure label at the primary horizon. The metric is event-level
+   sensitivity at matched alert volume. The model beats the comparators
+   when the patient-clustered bootstrap CI's lower bound is above 0 against
+   every arm. This is the paper's one hypothesis test.
+2. **Label validity** (2026-10-04, "Kappa rules for adjudication"). The
+   frame-weighted κ of the primary label, from the primary adjudicator.
+   Below `adjudication_min_kappa`, circuit failure drops to secondary and
+   hypophosphatemia is promoted.
+3. **Hypophosphatemia** (2026-10-03). Incident phosphate below
+   `moderate_mg_dl` (2.0 mg/dL) within `horizon_hours` (24 h), gradient
+   boosting on the full feature set, pooled out-of-fold predictions from the
+   outer patient-grouped folds. It is an estimate, not a test: AUPRC with
+   the prevalence beside it and a patient-clustered bootstrap CI, with
+   calibration slope and intercept. It is registered in full, so moving it
+   into its own paper at drafting does not break the registration.
+
+The checklist named "incident severe hypophosphatemia". Severe (below
+1.0 mg/dL) is descriptive only, at 75 incident stays, under
+`cohort.min_events_for_modeling` (2026-10-03). The confirmatory outcome is
+the moderate one.
+
+**Secondary.** Pre-specified now and reported in full. None of these
+decides anything, and none can stand in for a confirmatory result that
+fails.
+
+- The other metrics of the confirmatory models (Part 10): AUROC, Brier
+  score, calibration plots, decision curves, alerts per shift at the alert
+  budget, lead time.
+- The rest of the ladder (Part 8.1): rung 2, compared the same way
+  (2026-10-07), and rung 4 if the event volume supports it.
+- Temporal validation (Part 9.2).
+- Every sensitivity analysis in checklist §7, including `death_censor`
+  (entry below).
+- The secondary adjudication numbers (2026-10-04): κ for the sensitivity
+  label, κ without `unclear`, the PPV of `clotted`, and the clot share among
+  `undocumented` and `clots_increasing`.
+- Severe hypophosphatemia, descriptively.
+
+**Exploratory.** These generate hypotheses. The manuscript labels them
+exploratory and keeps them out of the abstract's conclusions. They are
+still reported whatever they show.
+
+- **The group ablation** (Part 11): machine features only, clinical
+  features only, both. "Machine" is `machine_features` plus the `_measured`
+  flags of its 17 signals in `missingness_features`. "Clinical" is every
+  other feature table and column. The split is fixed now, so it cannot be
+  redrawn after the result.
+- Contribution 4: the AUROC inflation from circuit-level splits and from
+  pressure in the label.
+- SHAP, global and for a few illustrative circuits (Part 11).
+- Subgroups (Part 10): anticoagulation, sex, race, age. CRRT mode is not
+  one: 96% of mode-charted stays are CVVHDF (feasibility §6, item 10).
+- The net clot risk under independent censoring, if the faculty mentor asks
+  for it (2026-10-13).
+
+**Why the ablation stays exploratory.** Part 11 calls it "your central
+claim". Part 11 predates 2026-10-02, which put the claim on the task, the
+outcome definition and the test against simple rules.
+
+- Promoting it would add a second hypothesis test, with its own metric,
+  decision rule and correction for multiplicity. The intersection–union
+  rule of 2026-10-07 covers the comparator arms only.
+- Its arms are cuts through one feature set, not alternatives a nurse
+  uses, and some features sit on the boundary. The missingness flags are
+  the clearest case.
+- What keeps its result credible is that the split is fixed in advance.
+  Promoting it would add little to that.
+
+**Why hypophosphatemia is an estimate.** It has no registered comparator,
+so there is nothing for it to beat. The obvious candidate is a one-variable
+rule that ranks rows by the last known phosphate. Adding it would be a new
+analysis, and it is not added here.
+
+**For the authors.** Decide whether hypophosphatemia gets that comparator.
+If it does, it goes in before registration, as a secondary analysis.
+
+**Where it applies.** Plan Parts 8, 10, 11 and 12;
+`BEFORE_OSF_CHECKLIST.md` §6.
+
 ## 2026-10-17 — Death is a competing ending
 
 **Decision.** In both outcomes, death is a competing ending in the primary

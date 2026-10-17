@@ -123,14 +123,21 @@ This is the claim a reviewer will hold against the registration. Done
 
 ## 6. Confirmatory vs exploratory
 
-- [ ] **Confirmatory:** circuit failure at the primary horizon; incident
-      severe hypophosphatemia; the comparison against both comparators.
-- [ ] **Exploratory:** contribution 4 (AUROC inflation from circuit-level
+Done 2026-10-17: see "Confirmatory, secondary and exploratory analyses" in
+`docs/decisions.md`. Copy its three lists into the registration.
+
+- [x] **Confirmatory:** the comparison against both comparators on circuit
+      failure at the primary horizon (contribution 3); the frame-weighted κ
+      and its kill rule; incident hypophosphatemia below 2.0 mg/dL, as an
+      estimate. Not *severe* hypophosphatemia, which is descriptive only.
+- [x] **Exploratory:** contribution 4 (AUROC inflation from circuit-level
       splits and from pressure in the label), SHAP, subgroups, group
-      ablation (unless promoted to confirmatory — decide and say which).
-- [ ] Hypophosphatemia registered in full regardless of packaging, so that
+      ablation. The ablation stays exploratory, with its feature split fixed.
+- [x] Hypophosphatemia registered in full regardless of packaging, so that
       splitting it into its own short paper at drafting does not break the
       registration.
+- [ ] Decide whether hypophosphatemia gets a simple comparator (ranking by
+      the last known phosphate). Optional; if yes, before registration.
 
 ## 7. Every sensitivity analysis listed by name
 
