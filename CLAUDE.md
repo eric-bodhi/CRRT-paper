@@ -6,8 +6,9 @@ Full plan: `docs/crrt_project_outline.md`. Every judgment call goes in
 
 **Goal.** A multi-outcome early-warning framework for complications that happen
 *during* CRRT, hour to hour. Primary outcome: premature circuit failure from
-clotting. Secondary: incident severe hypophosphatemia. Mortality, CRRT
-initiation and CRRT weaning are saturated lanes — do not enter them (Part 0/3).
+clotting. Secondary: incident hypophosphatemia, phosphate below 2.0 mg/dL
+(below 1.0 is descriptive only). Mortality, CRRT initiation and CRRT weaning
+are saturated lanes — do not enter them (Part 0/3).
 
 **Unit of analysis: the CRRT circuit, nested within patients.** One patient
 contributes many circuits. Two consequences, both non-negotiable (Part 4.3):
