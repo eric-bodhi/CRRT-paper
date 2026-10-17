@@ -2,7 +2,91 @@
 
 Every judgment call, with its date (plan Part 14). Newest first.
 
+## 2026-10-17 — Hypophosphatemia is compared against the last known phosphate
+
+**Decision.** Hypophosphatemia gets one simple comparator, the last known
+phosphate, and the comparison is confirmatory. This answers the question
+the entry below left open, and changes its expectation on one point: the
+comparison is confirmatory, not secondary. The registration copies this
+table.
+
+| | |
+|---|---|
+| Outcome | Hypophosphatemia, primary label: incident phosphate below `moderate_mg_dl` within `horizon_hours`, main analysis |
+| Model | Gradient boosting on the full feature set, as in the confirmatory estimate. Penalised logistic regression is compared the same way and reported; it does not decide |
+| Comparator | `hypophos_labels.known_value`, the latest-drawn phosphate stored by *t*, as a score: the lower the value, the higher the risk. Every scored row has one, because a row without one is not scored |
+| Data | Pooled out-of-fold predictions from the outer patient-grouped folds, on the one patient-to-fold map (2026-10-07). The temporal split is reported the same way and does not decide |
+| Rows | Labelled, scored rows of `hypophos_labels`. Censored rows count for no one |
+| Metric | AUPRC, the metric of the confirmatory estimate. Tied comparator values stay tied: average precision takes each distinct value as one threshold, so no tie-break is needed |
+| Test | Paired difference, model minus comparator. Patient-clustered percentile bootstrap, `validation.bootstrap_iterations` resamples, CI at `evaluation.comparators.ci_level` (95%) |
+| Decision | The model beats the comparator when the CI's lower bound is above 0. If it does not, that is reported as the finding |
+
+**Why a comparator.**
+
+- The bedside team already sees the last phosphate, and a value just above
+  the threshold already tells them who is close to it. An AUPRC reported
+  alone cannot say whether the model adds anything to that. Contribution 3
+  asks the same question of circuit failure.
+- The model already sees phosphate (`lab_features`, chemistry group), so
+  the comparator is nested inside it. The test asks whether everything else
+  adds anything.
+- Fixed now, it cannot be chosen after the result.
+
+**Why the last value and nothing more elaborate.**
+
+- It is what the team reads off the chart, and it has no threshold to
+  choose.
+- A ranking metric does not change under any monotone transformation of the
+  score, so there is nothing to recalibrate. Unlike Hu, there is no "as
+  published" and "recalibrated" pair.
+- A trend rule (the last two draws, projected forward) would need a
+  projection horizon and a rule for rows with one draw. It would be a small
+  model of its own, not a simple rule.
+
+**Why a different metric from contribution 3.** Contribution 3's
+comparators are binary rules, and each fixes an alert count for the model
+to match. This comparator is a continuous score with no alert count of its
+own. An operating point for it would need a number that nothing in the plan
+supplies. AUPRC compares the two rankings over every threshold, and it is
+already the metric of the confirmatory estimate.
+
+**Why confirmatory, not secondary.**
+
+- If κ falls below `adjudication_min_kappa`, hypophosphatemia is promoted
+  to primary. That is known only after model development (2026-10-04, "Clinical
+  review waits for a clinical mentor"), too late to choose its tier then. If
+  it were promoted with only an estimate, the paper's primary outcome would
+  have no pre-specified test.
+- It is registered in full so that it can become its own paper (2026-10-02).
+  That paper needs its own confirmatory question.
+
+**Multiplicity.**
+
+- There are now two confirmatory tests, one per outcome. Each is its own
+  family at `ci_level`. No claim pools the outcomes, so neither test
+  supports a claim about intra-treatment complications in general.
+- Beside each CI, the 97.5% interval is reported as a secondary number.
+  That is the Bonferroni bound for two tests, for a reader who counts the
+  paper as one family. It decides nothing.
+
+**What does not change.**
+
+- The confirmatory estimate (AUPRC with prevalence, calibration) stays. The
+  comparison is added to it.
+- Contribution 3 stays circuit failure only (2026-10-07). This comparison
+  is its counterpart for the other outcome, not part of it.
+- There is no new config key. The comparator has no parameter, and the test
+  reuses `validation.bootstrap_iterations` and
+  `evaluation.comparators.ci_level`.
+
+**Where it applies.** Plan Parts 5.2, 8.1 and 10; `config/config.yaml →
+evaluation.comparators` (comment only); `BEFORE_OSF_CHECKLIST.md` §6.
+
 ## 2026-10-17 — Confirmatory, secondary and exploratory analyses
+
+*Amended the same day by "Hypophosphatemia is compared against the last
+known phosphate", above: the comparison is a confirmatory test for
+hypophosphatemia, added to its estimate.*
 
 **Decision.** Every planned analysis sits in one of three tiers. This
 closes `BEFORE_OSF_CHECKLIST.md` §6, and the registration copies the lists.

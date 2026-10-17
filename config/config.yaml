@@ -827,7 +827,9 @@ evaluation:                                 # Plan Part 10
     # The model beats a comparator when the lower bound of this CI on the
     # paired difference in event-level sensitivity at matched alert volume
     # (patient-clustered bootstrap, validation.bootstrap_iterations) is
-    # above zero.
+    # above zero. The hypophosphatemia comparison (the last known phosphate,
+    # which has no parameter) reads the same level on the paired difference
+    # in AUPRC (decisions.md 2026-10-17).
     ci_level: 0.95
 
   # Plan 6.5 negative control: refit the whole pipeline on a shuffled label.
