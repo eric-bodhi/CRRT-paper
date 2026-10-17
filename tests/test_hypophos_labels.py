@@ -180,11 +180,22 @@ def test_repletion_after_the_low_draw_does_not_censor():
     assert rows[10]["label"] is True
 
 
-def test_death_in_the_window_censors():
+def test_death_in_the_window_changes_nothing_in_the_primary():
+    """Death competes (decisions.md 2026-10-17): the row is labelled from
+    its draws, negative with normal draws, unmeasured with none."""
     death = 30
     rows = Patient(end_h=death - 1).every(-1, death - 2, 6).dies(death).run()
+    assert rows[death - H]["label"] is False and rows[death - H]["censor_reason"] is None
+    assert rows[death - 2]["label"] is None and rows[death - 2]["censor_reason"] == "unmeasured"
+
+
+def test_death_handling_censor_censors_a_window_death_is_in():
+    death = 30
+    cfg = {**CFG, "outcomes": {**CFG["outcomes"],
+                               "death_handling_primary": CFG["outcomes"]["death_handling_sensitivity"]}}
+    rows = Patient(end_h=death - 1).every(-1, death - 2, 6).dies(death).run(cfg)
     assert rows[death - H]["label"] is None
-    assert rows[death - H]["censor_reason"] == "competing_risk"
+    assert rows[death - H]["censor_reason"] == "death"
 
 
 def test_window_with_no_draw_is_censored_not_negative():

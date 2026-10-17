@@ -1,8 +1,9 @@
 -- hypophos_labels: one row per circuit per prediction time, with the
 -- incident hypophosphatemia label (Parts 3.2, 5.2, 5.3, 6.1).
 --
--- Decision in docs/decisions.md (2026-10-03, "Hypophosphatemia prediction
--- rows"). Every column is defined in docs/data_dictionary.md.
+-- Decisions in docs/decisions.md (2026-10-03, "Hypophosphatemia prediction
+-- rows"; 2026-10-17, "Death is a competing ending"). Every column is defined
+-- in docs/data_dictionary.md.
 --
 -- Rows: the same grid as circuit_failure_labels, every included crrt_cohort
 -- circuit at circuit_start + k * `step` up to circuit_end. Phosphate is
@@ -36,7 +37,10 @@
 --          'censor'.
 --   true   the event is drawn in the window, or the row is repleted and
 --          `repletion_handling` is 'composite'.
---   NULL   competing_risk: the patient dies in the window (Part 5.3).
+--   NULL   death: the patient dies in the window and `death_handling` is
+--          'censor' (a sensitivity analysis). When it is 'competing'
+--          (Part 5.3), death changes nothing: the row is labelled from the
+--          draws, as below.
 --   NULL   unmeasured: no phosphate is drawn in the window, so its absence
 --          is not evidence of a normal value.
 --   false  otherwise.
@@ -152,7 +156,8 @@ censoring AS (
             WHEN repleted AND getvariable('repletion_handling') = 'censor' THEN 'repletion'
             WHEN first_low_at <= window_end THEN NULL
             WHEN repleted AND getvariable('repletion_handling') = 'composite' THEN NULL
-            WHEN deathtime > pred_time AND deathtime <= window_end THEN 'competing_risk'
+            WHEN deathtime > pred_time AND deathtime <= window_end
+             AND getvariable('death_handling') = 'censor' THEN 'death'
             WHEN next_drawn_at IS NULL OR next_drawn_at > window_end THEN 'unmeasured'
         END AS censor_reason
     FROM with_repletion

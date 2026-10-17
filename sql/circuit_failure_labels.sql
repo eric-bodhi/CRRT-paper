@@ -2,8 +2,9 @@
 -- circuit-failure label (Parts 5.1, 5.3, 6.1-6.3).
 --
 -- Decisions in docs/decisions.md (2026-10-02, "Primary event, unclear and
--- death handling"; 2026-10-03, "Circuit-failure prediction rows"). Every
--- column is defined in docs/data_dictionary.md.
+-- death handling"; 2026-10-03, "Circuit-failure prediction rows";
+-- 2026-10-17, "Death is a competing ending"). Every column is defined in
+-- docs/data_dictionary.md.
 --
 -- Rows: every included crrt_cohort circuit, at circuit_start + k * `step`
 -- up to circuit_end. No row is dropped. A row that is not scored names the
@@ -32,11 +33,12 @@
 -- Label, for scored rows: did the filter end as an event in (t, t + horizon]?
 -- Follow-up stops at circuit_start + `max_age`.
 --   true   an `event_classes` end_time falls in the window, by max_age.
---   NULL   a `competing_risk_classes` end_time falls in the window, by
---          max_age: censored by death (Part 5.3).
+--   NULL   a `death_classes` end_time falls in the window, by max_age, and
+--          `death_handling` is 'censor' (a sensitivity analysis).
 --   false  the filter came down in the window, by max_age, for a reason
---          that is not an event, or the whole window ends by max_age and the
---          filter ran through it.
+--          that is not an event (death included when `death_handling` is
+--          'competing', Part 5.3), or the whole window ends by max_age and
+--          the filter ran through it.
 --   NULL   otherwise: the window runs past max_age with the filter still
 --          up at max_age, so the outcome is not observed.
 -- censor_reason says which NULL a row is.
@@ -75,7 +77,8 @@ ends AS (
         -- circuit_end.
         least(c.circuit_end, d.documented_at) AS end_time,
         list_contains(getvariable('event_classes'), c.termination_class) AS is_event,
-        list_contains(getvariable('competing_risk_classes'), c.termination_class) AS is_competing,
+        list_contains(getvariable('death_classes'), c.termination_class)
+            AND getvariable('death_handling') = 'censor' AS is_censored,
         list_contains(getvariable('unclear_classes'), c.termination_class)
             AND getvariable('unclear_handling') = 'exclude' AS is_excluded
     FROM circ AS c
@@ -133,13 +136,13 @@ SELECT
     CASE
         WHEN not_scored_reason IS NOT NULL THEN NULL
         WHEN end_time <= window_end AND end_time <= censor_time THEN
-            CASE WHEN is_event THEN true WHEN is_competing THEN NULL ELSE false END
+            CASE WHEN is_event THEN true WHEN is_censored THEN NULL ELSE false END
         WHEN window_end <= censor_time THEN false
     END AS label,
     CASE
         WHEN not_scored_reason IS NOT NULL THEN NULL
         WHEN end_time <= window_end AND end_time <= censor_time THEN
-            CASE WHEN is_competing THEN 'competing_risk' END
+            CASE WHEN is_censored THEN 'death' END
         WHEN window_end > censor_time THEN 'max_age'
     END AS censor_reason
 FROM windows

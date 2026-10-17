@@ -18,14 +18,14 @@ duckdb = pytest.importorskip("duckdb")
 CFG = config.load()
 O = CFG["outcomes"]["circuit_failure"]
 STRATA = O["adjudication_strata"]
-CENSORED = O["competing_risk_classes"]
+DEATH = O["death_classes"]
 ORIGIN = datetime(2150, 1, 1)
 SPARE = 5
 
 
 def world(cfg=CFG, extra_per_stratum: int = SPARE) -> duckdb.DuckDBPyConnection:
     """Each stratum's classes share circuits + extra_per_stratum included
-    circuits. Every censored class gets the same number again, and every
+    circuits. Every death class gets the same number again, and every
     stratum gets one excluded circuit of its first class."""
     con = duckdb.connect()
     con.execute("CREATE TABLE crrt_circuits (circuit_id BIGINT, subject_id INTEGER, "
@@ -46,7 +46,7 @@ def world(cfg=CFG, extra_per_stratum: int = SPARE) -> duckdb.DuckDBPyConnection:
         for k in range(n):
             add(s["classes"][k % len(s["classes"])], True)
         add(s["classes"][0], False)
-    for cls in CENSORED:
+    for cls in DEATH:
         for _ in range(max(s["circuits"] for s in STRATA.values()) + SPARE):
             add(cls, True)
     con.executemany("INSERT INTO crrt_circuits VALUES (?, ?, ?, ?, ?, ?)", circuits)
@@ -79,12 +79,12 @@ def test_circuits_come_from_their_stratum_classes_only(drawn):
         assert r["termination_class"] in STRATA[r["stratum"]]["classes"]
 
 
-def test_excluded_and_censored_circuits_are_never_drawn(drawn):
+def test_excluded_and_death_circuits_are_never_drawn(drawn):
     excluded = {r[0] for r in drawn.execute(
         "SELECT circuit_id FROM crrt_cohort WHERE NOT included").fetchall()}
     for r in sample(drawn):
         assert r["circuit_id"] not in excluded
-        assert r["termination_class"] not in CENSORED
+        assert r["termination_class"] not in DEATH
 
 
 def test_weight_is_frame_size_over_circuits_drawn(drawn):

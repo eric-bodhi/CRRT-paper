@@ -175,14 +175,23 @@ def test_non_event_end_is_negative_and_blanked_the_same_way():
                 assert r["label"] is False
 
 
-def test_death_censors_rows_whose_horizon_contains_it():
+def test_death_is_a_non_event_in_the_primary():
+    """Death competes (decisions.md 2026-10-17): every scored row of a
+    circuit that ends in death is labelled false, near the end or not."""
+    rows = Circuits().circuit(1, 30, "death").run()[1]
+    assert {(r["label"], r["censor_reason"]) for r in rows if r["scored"]} == {(False, None)}
+
+
+def test_death_handling_censor_censors_rows_whose_horizon_contains_it():
     end = 30
-    rows = by_hour(Circuits().circuit(1, end, "death").run()[1])
+    cfg = {**CFG, "outcomes": {**CFG["outcomes"],
+                               "death_handling_primary": CFG["outcomes"]["death_handling_sensitivity"]}}
+    rows = by_hour(Circuits().circuit(1, end, "death").run(cfg)[1])
     for h, r in rows.items():
         if not r["scored"]:
             continue
         if end - h <= H:
-            assert r["label"] is None and r["censor_reason"] == "competing_risk"
+            assert r["label"] is None and r["censor_reason"] == "death"
         else:
             assert r["label"] is False and r["censor_reason"] is None
 

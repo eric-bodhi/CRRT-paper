@@ -12,7 +12,9 @@ There are two kinds:
 
 - **Label analyses** change only which rows are scored and how they are
   labelled: horizon, blanking, event classes, unclear handling,
-  phosphate threshold, repletion handling. Each rebuilds one label table.
+  phosphate threshold, repletion handling, death handling. Each rebuilds
+  one label table, except death handling, which applies to both and
+  rebuilds both.
   It shares `main`'s circuits, cohort and feature tables, and its grid is
   checked against the primary's so the features join.
 - **Circuit analyses** change which circuits exist: maximum downtime and
@@ -96,6 +98,9 @@ def analyses(cfg: dict[str, Any]) -> list[Analysis]:
     for handling in hp["repletion_handling_sensitivity"]:
         add(f"repletion_{handling}", ("outcomes", "hypophosphatemia", "repletion_handling_primary"),
             handling, HYPOPHOS)
+    add(f"death_{cfg['outcomes']['death_handling_sensitivity']}",
+        ("outcomes", "death_handling_primary"), cfg["outcomes"]["death_handling_sensitivity"],
+        CIRCUIT_FAILURE + HYPOPHOS)
     for h in cfg["circuits"]["max_downtime_hours_sensitivity"]:
         add(f"max_downtime_{h}h", ("circuits", "max_downtime_hours"), h, EVERY_STAGE)
     for h in cfg["sessionization"]["gap_hours_sensitivity"]:

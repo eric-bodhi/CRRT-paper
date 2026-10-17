@@ -109,7 +109,11 @@ This is the claim a reviewer will hold against the registration. Done
     stratum and κ without them are reported as secondary numbers;
   - κ for the sensitivity label, the PPV of `clotted` and the clot share
     among `undocumented` and `clots_increasing` are reported, and none of
-    them can replace the primary label.
+    them can replace the primary label;
+  - κ is weighted back to the frame of the four strata, every included
+    circuit that does not end in death. Death endings are labelled
+    non-events but not adjudicated (decision 2026-10-17, "Death is a
+    competing ending").
 - [ ] Plausibility bounds: data-derived until clinical review; a bound
       changed after registration is reported as a deviation.
 - [ ] Event-count kill rule: the minimum event count below which the paper
@@ -119,14 +123,21 @@ This is the claim a reviewer will hold against the registration. Done
 
 ## 6. Confirmatory vs exploratory
 
-- [ ] **Confirmatory:** circuit failure at the primary horizon; incident
-      severe hypophosphatemia; the comparison against both comparators.
-- [ ] **Exploratory:** contribution 4 (AUROC inflation from circuit-level
+Done 2026-10-17: see "Confirmatory, secondary and exploratory analyses" in
+`docs/decisions.md`. Copy its three lists into the registration.
+
+- [x] **Confirmatory:** the comparison against both comparators on circuit
+      failure at the primary horizon (contribution 3); the frame-weighted κ
+      and its kill rule; incident hypophosphatemia below 2.0 mg/dL, as an
+      estimate. Not *severe* hypophosphatemia, which is descriptive only.
+- [x] **Exploratory:** contribution 4 (AUROC inflation from circuit-level
       splits and from pressure in the label), SHAP, subgroups, group
-      ablation (unless promoted to confirmatory — decide and say which).
-- [ ] Hypophosphatemia registered in full regardless of packaging, so that
+      ablation. The ablation stays exploratory, with its feature split fixed.
+- [x] Hypophosphatemia registered in full regardless of packaging, so that
       splitting it into its own short paper at drafting does not break the
       registration.
+- [ ] Decide whether hypophosphatemia gets a simple comparator (ranking by
+      the last known phosphate). Optional; if yes, before registration.
 
 ## 7. Every sensitivity analysis listed by name
 
@@ -142,6 +153,8 @@ One line each in the registration, so none reads as post hoc. Current
 - [ ] `event_classes_sensitivity`
 - [ ] `unclear_handling_sensitivity`
 - [ ] `repletion_handling_sensitivity`
+- [ ] `death_handling_sensitivity` (decision 2026-10-17): death censored
+      instead of competing, both outcomes.
 - [ ] `inputevents` anticoagulation (decision 2026-10-04): circuit
       failure, eras 2008–10 to 2017–19 only, compared with the primary
       feature set on the same eras and folds. It also carries the
@@ -189,8 +202,10 @@ declined" in `docs/decisions.md`.
 
 - [ ] The faculty mentor has answered on competing endings in place of
       independent censoring, and the answer is logged.
-- [ ] Death decided and logged: censored (as now) or a competing ending,
-      with the other choice as a sensitivity analysis listed in §7.
+- [x] Death decided and logged: censored (as now) or a competing ending,
+      with the other choice as a sensitivity analysis listed in §7. Done
+      2026-10-17: a competing ending, censored as the sensitivity
+      analysis (see "Death is a competing ending").
 - [ ] The registration states the estimand: the H-hour cumulative incidence
       of documented clotting, with other endings competing.
 - [ ] The registration specifies rung 2 as the landmark, competing-risks

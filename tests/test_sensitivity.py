@@ -20,6 +20,7 @@ BUILT = {
     "outcomes.circuit_failure.unclear_handling_sensitivity",
     "outcomes.hypophosphatemia.sensitivity_mg_dl",
     "outcomes.hypophosphatemia.repletion_handling_sensitivity",
+    "outcomes.death_handling_sensitivity",
     "circuits.max_downtime_hours_sensitivity",
     "sessionization.gap_hours_sensitivity",
 }

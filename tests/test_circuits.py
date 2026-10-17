@@ -271,7 +271,7 @@ def test_outcome_classes_exist_and_do_not_overlap():
     groups = {
         "event_primary": set(cf["event_classes_primary"]),
         "event_sensitivity": set(cf["event_classes_sensitivity"]),
-        "competing_risk": set(cf["competing_risk_classes"]),
+        "death": set(cf["death_classes"]),
         "unclear": set(cf["unclear_classes"]),
     }
     known = termination_classes()
@@ -279,6 +279,6 @@ def test_outcome_classes_exist_and_do_not_overlap():
     for name, classes in groups.items():
         assert classes and classes <= known, f"{name}: unknown {sorted(classes - known)}"
     assert groups["event_primary"] <= groups["event_sensitivity"]
-    others = groups["competing_risk"] | groups["unclear"]
+    others = groups["death"] | groups["unclear"]
     assert not groups["event_sensitivity"] & others
-    assert not groups["competing_risk"] & groups["unclear"]
+    assert not groups["death"] & groups["unclear"]
